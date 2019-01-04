@@ -139,3 +139,9 @@ verify the signature perform the following:
 ## License
 
 ltcd is licensed under the [copyfree](http://copyfree.org) ISC License.
+
+## Contributers
+https://github.com/thrasher-
+https://github.com/losh11
+https://github.com/RostyslavAntonyshyn
+https://github.com/yuraolex
