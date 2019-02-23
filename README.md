@@ -140,7 +140,7 @@ verify the signature perform the following:
 
 ltcd is licensed under the [copyfree](http://copyfree.org) ISC License.
 
-## Contributers
+## Contributors
 https://github.com/thrasher-
 https://github.com/losh11
 https://github.com/RostyslavAntonyshyn
