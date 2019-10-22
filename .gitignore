@@ -31,4 +31,5 @@ _cgo_export.*
 
 _testmain.go
 
+ltcd
 *.exe

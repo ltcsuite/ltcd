@@ -23,7 +23,7 @@ github.com/jrick/logrotate v1.0.0 h1:lQ1bL/n9mBNeIXoTUoYRlK4dHuNJVofX9oWqBtPnSzI
 github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlTRt3OuAQ=
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23 h1:FOOIBWrEkLgmlgGfMuZT83xIwfPDxEI2OHu6xUmJMFE=
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
-github.com/ltcsuite/ltcutil v0.0.0-20190507082654-23cdfa9fcc3d h1:4Be1+MczhjO/3H7+MZwIYe2YJoeo6+ae9AqCMk08fuE=
-github.com/ltcsuite/ltcutil v0.0.0-20190507082654-23cdfa9fcc3d/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=
+github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d h1:o3FzlZi/X1toPbCKVZNRV3PQo7MM6eQZ4d1wblS/41c=
+github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=
 golang.org/x/crypto v0.0.0-20170930174604-9419663f5a44 h1:9lP3x0pW80sDI6t1UMSLA4to18W7R7imwAI/sWS9S8Q=
 golang.org/x/crypto v0.0.0-20170930174604-9419663f5a44/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
