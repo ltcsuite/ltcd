@@ -274,15 +274,12 @@ func (m *CPUMiner) solveBlock(msgBlock *wire.MsgBlock, blockHeight int32,
 			// increment the number of hashes completed for each
 			// attempt accordingly.
 			header.Nonce = i
-			hash, err := header.PowHash()
-			if err != nil {
-				return false
-			}
+			hash := header.PowHash()
 			hashesCompleted += 1
 
 			// The block is solved when the new block hash is less
 			// than the target difficulty.  Yay!
-			if blockchain.HashToBig(hash).Cmp(targetDifficulty) <= 0 {
+			if blockchain.HashToBig(&hash).Cmp(targetDifficulty) <= 0 {
 				m.updateHashes <- hashesCompleted
 				return true
 			}

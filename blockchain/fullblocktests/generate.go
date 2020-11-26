@@ -342,7 +342,7 @@ func solveBlock(header *wire.BlockHeader) bool {
 				return
 			default:
 				hdr.Nonce = i
-				hash := hdr.BlockHash()
+				hash := hdr.PowHash()
 				if blockchain.HashToBig(&hash).Cmp(
 					targetDifficulty) <= 0 {
 
