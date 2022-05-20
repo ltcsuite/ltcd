@@ -6,13 +6,15 @@ package wire
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"reflect"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"gotest.tools/assert"
 )
 
 // TestTx tests the MsgTx API.
@@ -464,6 +466,35 @@ func TestTxWireErrors(t *testing.T) {
 			continue
 		}
 	}
+}
+
+func TestTxDeserializeWithMweb(t *testing.T) {
+	// github.com/litecoin-project/litecoin start encode mweb tx into hex from version v0.21.2.
+	// https://github.com/litecoin-project/litecoin/blob/v0.21.2/src/primitives/transaction.h#L365-L367
+	// To make this golang lib work with C++ server, let's skip the mweb tx section for now.
+	testCases := map[string]struct {
+		hex     string
+		wantErr bool
+	}{
+		"with mweb": {
+			hex:     "02000000000801431b10af004756b289648bbb31baa4957595b1e71db3afb4ec24985e8039cf770000000000ffffffff019025336d90320000225820652cfe2ad02020b93b68e60c2708c13897775cba5ee50abd1fe18fbb1cf51a7f0000000000",
+			wantErr: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			dst := make([]byte, hex.DecodedLen(len(tc.hex)))
+			_, err := hex.Decode(dst, []byte(tc.hex))
+			if err != nil {
+				t.Errorf("error decoding transaction hex")
+				return
+			}
+			var msgTx MsgTx
+			err = msgTx.BtcDecode(bytes.NewReader(dst), 0, WitnessEncoding)
+			assert.Equal(t, tc.wantErr, err != nil)
+		})
+	}
+
 }
 
 // TestTxSerialize tests MsgTx serialize and deserialize.

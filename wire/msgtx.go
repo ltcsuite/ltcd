@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"strconv"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
@@ -140,6 +141,7 @@ const (
 	// transaction has witness data. This allows decoders to distinguish a
 	// serialized transaction with witnesses from a legacy one.
 	WitnessFlag TxFlag = 0x01
+	MwebFlag    TxFlag = 0x08
 )
 
 // scriptFreeList defines a free list of byte slices (up to the maximum number
@@ -446,18 +448,23 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 
 	// A count of zero (meaning no TxIn's to the uninitiated) means that the
 	// value is a TxFlagMarker, and hence indicates the presence of a flag.
-	var flag [1]TxFlag
+	hasMweb := false
+	hasWitness := false
 	if count == TxFlagMarker && enc == WitnessEncoding {
+		var flag [1]TxFlag
 		// The count varint was in fact the flag marker byte. Next, we need to
 		// read the flag value, which is a single byte.
 		if _, err = io.ReadFull(r, flag[:]); err != nil {
 			return err
 		}
 
-		// At the moment, the flag MUST be WitnessFlag (0x01). In the future
-		// other flag types may be supported.
-		if flag[0] != WitnessFlag {
-			str := fmt.Sprintf("witness tx but flag byte is %x", flag)
+		hasWitness = (flag[0]&WitnessFlag != 0)
+		flag[0] = flag[0] &^ WitnessFlag
+		hasMweb = (flag[0]&MwebFlag != 0)
+		flag[0] = flag[0] &^ MwebFlag
+
+		if flag[0] != 0 {
+			str := fmt.Sprintf("Unknown flag %x, known flags:[%d, %d]", flag, WitnessFlag, MwebFlag)
 			return messageError("MsgTx.BtcDecode", str)
 		}
 
@@ -560,7 +567,7 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 
 	// If the transaction's flag byte isn't 0x00 at this point, then one or
 	// more of its inputs has accompanying witness data.
-	if flag[0] != 0 && enc == WitnessEncoding {
+	if hasWitness {
 		for _, txin := range msg.TxIn {
 			// For each input, the witness is encoded as a stack
 			// with one or more items. Therefore, we first read a
@@ -597,10 +604,28 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 		}
 	}
 
-	msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
-	if err != nil {
-		returnScriptBuffers()
-		return err
+	if hasMweb {
+		// TODO: decode mweb tx. Skip this part for now.
+		//   github.com/litecoin-project/litecoin start encode mweb tx into hex from version v0.21.2.
+		//   https://github.com/litecoin-project/litecoin/blob/v0.21.2/src/primitives/transaction.h#L365-L367
+		//   To make this golang lib work with C++ server, let's skip the mweb tx section for now.
+		data, err := ioutil.ReadAll(r)
+		if err != nil {
+			returnScriptBuffers()
+			return err
+		}
+		s := len(data)
+		if s < 4 {
+			returnScriptBuffers()
+			return messageError("MsgTx.BtcDecode", "no enough data to decode locktime")
+		}
+		msg.LockTime = littleEndian.Uint32(data[s-4:])
+	} else {
+		msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
+		if err != nil {
+			returnScriptBuffers()
+			return err
+		}
 	}
 
 	// Create a single allocation to house all of the scripts and set each

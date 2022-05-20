@@ -12,14 +12,23 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/ltcsuite/ltcd/btcec/v2 v2.1.0
 	github.com/ltcsuite/ltcd/ltcutil v1.1.0
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a
+	gotest.tools v2.2.0+incompatible
 )
 
 require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/snappy-go v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
-	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23 // indirect
+	github.com/google/go-cmp v0.5.5 // indirect
+	github.com/kkdai/bstream v1.0.0 // indirect
+	github.com/nxadm/tail v1.4.8 // indirect
+	github.com/onsi/ginkgo v1.15.0 // indirect
+	github.com/onsi/gomega v1.10.5 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	golang.org/x/net v0.0.0-20210521195947-fe42d452be8f // indirect
+	golang.org/x/sys v0.0.0-20210521203332-0cec03c779c1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
 replace github.com/ltcsuite/ltcd/ltcutil => ./ltcutil
