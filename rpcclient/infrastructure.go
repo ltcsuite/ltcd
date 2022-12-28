@@ -809,6 +809,16 @@ func (c *Client) handleSendPostMessage(jReq *jsonRequest) {
 		jReq.responseChan <- &Response{err: err}
 		return
 	}
+	// We still want to return an error if for any reason the respone
+	// remains empty.
+	if httpResponse == nil {
+		jReq.responseChan <- &Response{
+			err: fmt.Errorf("invalid http POST response (nil), "+
+				"method: %s, id: %d, last error=%v",
+				jReq.method, jReq.id, lastErr),
+		}
+		return
+	}
 
 	// Read the raw bytes and close the response.
 	respBytes, err := ioutil.ReadAll(httpResponse.Body)
