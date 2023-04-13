@@ -22,6 +22,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/onsi/ginkgo v1.15.0 // indirect
 	github.com/onsi/gomega v1.10.5 // indirect
@@ -29,6 +30,7 @@ require (
 	golang.org/x/net v0.0.0-20210521195947-fe42d452be8f // indirect
 	golang.org/x/sys v0.0.0-20210521203332-0cec03c779c1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	lukechampine.com/blake3 v1.1.7 // indirect
 )
 
 replace github.com/ltcsuite/ltcd/ltcutil => ./ltcutil

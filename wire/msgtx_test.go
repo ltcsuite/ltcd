@@ -6,7 +6,7 @@ package wire
 
 import (
 	"bytes"
-	"encoding/hex"
+	_ "embed"
 	"fmt"
 	"io"
 	"reflect"
@@ -15,6 +15,63 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"gotest.tools/assert"
+)
+
+var (
+	// peg-in txn 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03
+	// MEMPOOL, not in block, 2203 bytes, version 2
+	// with:
+	//  - flag 0x9
+	//  - 1 regular input / 1 regular output
+	//  - 0 mw inputs / 2 mw outputs
+	//  - 1 kernel with peg-in amt and fee amt and stealth pubkey
+	//go:embed testdata/tx8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03_mp.dat
+	tx8b83439mp []byte
+
+	// peg-in txn 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03
+	// This is the same tx as above, but now in the block stripped of mw tx
+	// data and with the flag with the mw bit unset.
+	// IN BLOCK, 203 bytes, version 2
+	// with:
+	//  - flag 0x1 (mw removed)
+	//  - 1 regular input / 1 regular output
+	//go:embed testdata/tx8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03.dat
+	tx8b83439 []byte
+
+	// Pure MW-only txn (no canonical inputs or outputs).
+	// MEMPOOL, not in block, 2203 bytes, version 2
+	// with:
+	//  - flag 0x8
+	//  - 0 regular inputs / 0 regular outputs
+	//  - 1 mw input / 2 mw outputs
+	//  - 1 kernel with fee amt and stealth pubkey
+	//go:embed testdata/txe6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049_mp.dat
+	txe6f8fdbmp []byte
+
+	// Pure MW-only txn (no canonical inputs or outputs).
+	// MEMPOOL, not in block, 2987 bytes, version 2
+	// with:
+	//  - flag 0x8
+	//  - 0 regular inputs / 0 regular outputs
+	//  - 5 mw inputs / 2 mw outputs
+	//  - 1 kernel with fee amt and stealth pubkey
+	//go:embed testdata/tx62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2_mp.dat
+	tx62e1756mp []byte
+
+	// Pure MW-only txn (no canonical inputs or outputs).
+	// MEMPOOL, not in block, 1333 bytes, version 2
+	// with:
+	//  - flag 0x8
+	//  - 0 regular inputs / 0 regular outputs
+	//  - 1 mw inputs / 1 mw outputs
+	//  - 1 kernel with fee amt and pegouts and stealth pubkey
+	//go:embed testdata/txcc202c44db4d6faec57f42566c6b1e03139f924eaf685ae964b3076594d65349_mp.dat
+	txcc202c4mp []byte
+
+	// HogEx with multiple inputs and outputs, IN BLOCK 2269979.
+	// Flag 0x8 (omit witness data), null mw tx (but not omitted), 169 bytes.
+	//go:embed testdata/txde22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c.dat
+	txde22f4d []byte
 )
 
 // TestTx tests the MsgTx API.
@@ -468,30 +525,57 @@ func TestTxWireErrors(t *testing.T) {
 	}
 }
 
-func TestTxDeserializeWithMweb(t *testing.T) {
-	// github.com/litecoin-project/litecoin start encode mweb tx into hex from version v0.21.2.
-	// https://github.com/litecoin-project/litecoin/blob/v0.21.2/src/primitives/transaction.h#L365-L367
-	// To make this golang lib work with C++ server, let's skip the mweb tx section for now.
+func TestMwebTxDeserialize(t *testing.T) {
 	testCases := map[string]struct {
-		hex     string
-		wantErr bool
+		hex          []byte
+		wantHash     string
+		wantLockTime uint32
 	}{
-		"with mweb": {
-			hex:     "02000000000801431b10af004756b289648bbb31baa4957595b1e71db3afb4ec24985e8039cf770000000000ffffffff019025336d90320000225820652cfe2ad02020b93b68e60c2708c13897775cba5ee50abd1fe18fbb1cf51a7f0000000000",
-			wantErr: false,
+		// "1: mempool peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
+		// 	hex:          tx8b83439mp,
+		// 	wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
+		// 	wantLockTime: 2269978,
+		// },
+
+		// "2: block peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
+		// 	hex:          tx8b83439,
+		// 	wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
+		// 	wantLockTime: 2269978,
+		// },
+		// "3: mempool MW tx e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049": {
+		// 	hex:          txe6f8fdbmp,
+		// 	wantHash:     "e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049",
+		// 	wantLockTime: 2269917,
+		// },
+
+		// "4: mempool MW tx 62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2": {
+		// 	hex:          tx62e1756mp,
+		// 	wantHash:     "62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2",
+		// 	wantLockTime: 2269919,
+		// },
+		"5: mempool MW tx cc202c44db4d6faec57f42566c6b1e03139f924eaf685ae964b3076594d65349": {
+			hex:          txcc202c4mp,
+			wantHash:     "cc202c44db4d6faec57f42566c6b1e03139f924eaf685ae964b3076594d65349",
+			wantLockTime: 2269977,
 		},
+		// "6: HogEx tx de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c": {
+		// 	hex:          txde22f4d,
+		// 	wantHash:     "de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c",
+		// 	wantLockTime: 0,
+		// },
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			dst := make([]byte, hex.DecodedLen(len(tc.hex)))
-			_, err := hex.Decode(dst, []byte(tc.hex))
-			if err != nil {
-				t.Errorf("error decoding transaction hex")
-				return
-			}
 			var msgTx MsgTx
-			err = msgTx.BtcDecode(bytes.NewReader(dst), 0, WitnessEncoding)
-			assert.Equal(t, tc.wantErr, err != nil)
+			_ = msgTx.BtcDecode(bytes.NewReader(tc.hex), 0, WitnessEncoding)
+
+			t.Log(len(msgTx.Kern0))
+			t.Log(len(msgTx.TxIn))
+			t.Log(len(msgTx.TxOut))
+			t.Log(msgTx.Kern0[:])
+
+			assert.Equal(t, tc.wantHash, msgTx.TxHash().String())
+			assert.Equal(t, tc.wantLockTime, msgTx.LockTime)
 		})
 	}
 
