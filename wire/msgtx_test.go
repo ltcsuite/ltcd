@@ -531,48 +531,43 @@ func TestMwebTxDeserialize(t *testing.T) {
 		wantHash     string
 		wantLockTime uint32
 	}{
-		// "1: mempool peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
-		// 	hex:          tx8b83439mp,
-		// 	wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
-		// 	wantLockTime: 2269978,
-		// },
+		"1: mempool peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
+			hex:          tx8b83439mp,
+			wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
+			wantLockTime: 2269978,
+		},
 
-		// "2: block peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
-		// 	hex:          tx8b83439,
-		// 	wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
-		// 	wantLockTime: 2269978,
-		// },
-		// "3: mempool MW tx e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049": {
-		// 	hex:          txe6f8fdbmp,
-		// 	wantHash:     "e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049",
-		// 	wantLockTime: 2269917,
-		// },
+		"2: block peg-in tx 8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03": {
+			hex:          tx8b83439,
+			wantHash:     "8b8343978dbef95d54da796977e9a254565c0dc9ce54917d9111267547fcde03",
+			wantLockTime: 2269978,
+		},
+		"3: mempool MW tx e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049": {
+			hex:          txe6f8fdbmp,
+			wantHash:     "e6f8fdb15b27e603adcfa5aa4107a0e7a7b07e6dc76d2ba95a33710db02a0049",
+			wantLockTime: 2269917,
+		},
 
-		// "4: mempool MW tx 62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2": {
-		// 	hex:          tx62e1756mp,
-		// 	wantHash:     "62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2",
-		// 	wantLockTime: 2269919,
-		// },
+		"4: mempool MW tx 62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2": {
+			hex:          tx62e1756mp,
+			wantHash:     "62e17562a697e3167e2b68bce5a927ac355249ef5751800c4dd927ddf57d9db2",
+			wantLockTime: 2269919,
+		},
 		"5: mempool MW tx cc202c44db4d6faec57f42566c6b1e03139f924eaf685ae964b3076594d65349": {
 			hex:          txcc202c4mp,
 			wantHash:     "cc202c44db4d6faec57f42566c6b1e03139f924eaf685ae964b3076594d65349",
 			wantLockTime: 2269977,
 		},
-		// "6: HogEx tx de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c": {
-		// 	hex:          txde22f4d,
-		// 	wantHash:     "de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c",
-		// 	wantLockTime: 0,
-		// },
+		"6: HogEx tx de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c": {
+			hex:          txde22f4d,
+			wantHash:     "de22f4de7116b8482a691cc5e552c4212f0ae77e3c8d92c9cb85c29f4dc1f47c",
+			wantLockTime: 0,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			var msgTx MsgTx
 			_ = msgTx.BtcDecode(bytes.NewReader(tc.hex), 0, WitnessEncoding)
-
-			t.Log(len(msgTx.Kern0))
-			t.Log(len(msgTx.TxIn))
-			t.Log(len(msgTx.TxOut))
-			t.Log(msgTx.Kern0[:])
 
 			assert.Equal(t, tc.wantHash, msgTx.TxHash().String())
 			assert.Equal(t, tc.wantLockTime, msgTx.LockTime)
