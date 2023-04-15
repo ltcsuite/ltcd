@@ -1096,19 +1096,24 @@ func writeTxWitness(w io.Writer, pver uint32, version int32, wit [][]byte) error
 
 type decoder struct {
 	buf [8]byte
-	io.Reader
-	tee *bytes.Buffer
+	rd  io.Reader
+	tee *bytes.Buffer // anything read from rd is Written to tee
 }
 
 // decoders
 func newDecoder(r io.Reader) *decoder {
-	return &decoder{Reader: r}
+	return &decoder{rd: r}
 }
 
-func (d *decoder) mirror(b []byte) {
+func (d *decoder) Read(b []byte) (n int, err error) {
+	n, err = d.rd.Read(b)
+	if err != nil {
+		return 0, err
+	}
 	if d.tee != nil {
 		d.tee.Write(b)
 	}
+	return n, nil
 }
 
 func (d *decoder) readByte() (byte, error) {
@@ -1116,16 +1121,11 @@ func (d *decoder) readByte() (byte, error) {
 	if _, err := io.ReadFull(d, b); err != nil {
 		return 0, err
 	}
-	d.mirror(b)
 	return b[0], nil
 }
 
 func (d *decoder) discardBytes(n int64) error {
-	w := io.Discard
-	if d.tee != nil {
-		w = d.tee
-	}
-	m, err := io.CopyN(w, d, n)
+	m, err := io.CopyN(io.Discard, d, n)
 	if err != nil {
 		return err
 	}
@@ -1135,8 +1135,8 @@ func (d *decoder) discardBytes(n int64) error {
 	return nil
 }
 
-func (d *decoder) discardVect(r io.Reader) error {
-	sz, err := ReadVarInt(r, 0)
+func (d *decoder) discardVect() error {
+	sz, err := ReadVarInt(d, 0)
 	if err != nil {
 		return err
 	}
@@ -1203,7 +1203,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 	//  std::vector<Kernel> m_kernels;
 
 	// inputs
-	numIn, err := ReadVarInt(d.Reader, 0)
+	numIn, err := ReadVarInt(d, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1234,7 +1234,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 			}
 		}
 		if feats&0x2 != 0 { // extraData
-			if err = d.discardVect(d.Reader); err != nil {
+			if err = d.discardVect(); err != nil {
 				return nil, err
 			}
 		}
@@ -1244,7 +1244,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 	}
 
 	// outputs
-	numOut, err := ReadVarInt(d.Reader, 0)
+	numOut, err := ReadVarInt(d, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1275,7 +1275,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 			}
 		}
 		if feats&0x2 != 0 { // extraData
-			if err = d.discardVect(d.Reader); err != nil {
+			if err = d.discardVect(); err != nil {
 				return nil, err
 			}
 		}
@@ -1288,7 +1288,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 	}
 
 	// kernels
-	numKerns, err := ReadVarInt(d.Reader, 0)
+	numKerns, err := ReadVarInt(d, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1326,7 +1326,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 			}
 		}
 		if feats&0x4 != 0 { // pegouts vector
-			sz, err := ReadVarInt(d.Reader, 0)
+			sz, err := ReadVarInt(d, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -1335,7 +1335,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 				if err != nil {
 					return nil, err
 				}
-				if err = d.discardVect(d.Reader); err != nil { // pkScript
+				if err = d.discardVect(); err != nil { // pkScript
 					return nil, err
 				}
 			}
@@ -1352,7 +1352,7 @@ func (d *decoder) readMWTXBody() ([]byte, error) {
 			}
 		}
 		if feats&0x20 != 0 { // extraData vector
-			if err = d.discardVect(d.Reader); err != nil {
+			if err = d.discardVect(); err != nil {
 				return nil, err
 			}
 		}
