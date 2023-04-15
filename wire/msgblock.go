@@ -30,6 +30,10 @@ const MaxBlockPayload = 4000000
 // possibly fit into a block.
 const maxTxPerBlock = (MaxBlockPayload / minTxPayload) + 1
 
+// mwebVer is the bit of the block header's version that indicates the
+// presence of a MWEB.
+const mwebVer = 0x20000000 // 1 << 29
+
 // TxLoc holds locator data for the offset and length of where a transaction is
 // located within a MsgBlock data buffer.
 type TxLoc struct {
@@ -81,6 +85,7 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 		return messageError("MsgBlock.BtcDecode", str)
 	}
 
+	var hasHogEx bool
 	msg.Transactions = make([]*MsgTx, 0, txCount)
 	for i := uint64(0); i < txCount; i++ {
 		tx := MsgTx{}
@@ -89,6 +94,15 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 			return err
 		}
 		msg.Transactions = append(msg.Transactions, &tx)
+		hasHogEx = tx.IsHogEx
+	}
+
+	// The mwebVer mask indicates it may contain a MWEB after a HogEx.
+	// src/primitives/block.h: SERIALIZE_NO_MWEB
+	if msg.Header.Version&mwebVer != 0 && hasHogEx {
+		if err = parseMWEB(r); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -287,4 +301,56 @@ func NewMsgBlock(blockHeader *BlockHeader) *MsgBlock {
 		Header:       *blockHeader,
 		Transactions: make([]*MsgTx, 0, defaultTransactionAlloc),
 	}
+}
+
+/// MWEB
+
+func parseMWEB(blk io.Reader) error {
+	dec := newDecoder(blk)
+	// src/mweb/mweb_models.h - struct Block
+	// "A convenience wrapper around a possibly-null extension block.""
+	// OptionalPtr around a mw::Block. Read the option byte:
+	hasMWEB, err := dec.readByte()
+	if err != nil {
+		return fmt.Errorf("failed to check MWEB option byte: %w", err)
+	}
+	if hasMWEB == 0 {
+		return nil
+	}
+
+	// src/libmw/include/mw/models/block/Block.h - class Block
+	// (1) Header and (2) TxBody
+
+	// src/libmw/include/mw/models/block/Header.h - class Header
+	// height
+	if _, err = dec.readVLQ(); err != nil {
+		return fmt.Errorf("failed to decode MWEB height: %w", err)
+	}
+
+	// 3x Hash + 2x BlindingFactor
+	if err = dec.discardBytes(32*3 + 32*2); err != nil {
+		return fmt.Errorf("failed to decode MWEB junk: %w", err)
+	}
+
+	// Number of TXOs: outputMMRSize
+	if _, err = dec.readVLQ(); err != nil {
+		return fmt.Errorf("failed to decode TXO count: %w", err)
+	}
+
+	// Number of kernels: kernelMMRSize
+	if _, err = dec.readVLQ(); err != nil {
+		return fmt.Errorf("failed to decode kernel count: %w", err)
+	}
+
+	// TxBody
+	_, err = dec.readMWTXBody()
+	if err != nil {
+		return fmt.Errorf("failed to decode MWEB tx: %w", err)
+	}
+	// if len(kern0) > 0 {
+	// 	mwebTxID := chainhash.Hash(blake3.Sum256(kern0))
+	// 	fmt.Println(mwebTxID.String())
+	// }
+
+	return nil
 }

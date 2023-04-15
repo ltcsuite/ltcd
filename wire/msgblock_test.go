@@ -6,13 +6,43 @@ package wire
 
 import (
 	"bytes"
+	_ "embed"
 	"io"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+)
+
+var (
+	// Testnet4 block 1821752 is pre-MWEB activation, 3 txns.
+	// But version 20000000.
+	//go:embed testdata/testnet4Block1821752.dat
+	block1821752 []byte
+
+	// Block 2215584 is the first with MW txns, a peg-in with witness version 9
+	// script, an integ tx with witness version 8 script, block version 20000000
+	// (with a MWEB), and 5 txns.
+	// 7e35fabe7b3c694ebeb0368a1a1c31e83962f3c5b4cc8dcede3ae94ed3deb306
+	//go:embed testdata/testnet4Block2215584.dat
+	block2215584 []byte
+
+	// Block 2321749 is version 20000000 with a MWEB, 4 txns, the last one being
+	// an integration / hogex txn that fails to decode.
+	// 57929846db4a92d937eb596354d10949e33c815ee45df0c9b3bbdfb283e15bcd
+	//go:embed testdata/testnet4Block2321749.dat
+	block2321749 []byte
+
+	// Block 2319633 is version 20000000 with a MWEB, 2 txns, one coinbase and
+	// one integration.
+	// e9fe2c6496aedefa8bf6529bdc5c1f9fd4af565ca4c98cab73e3a1f616fb3502
+	//go:embed testdata/testnet4Block2319633.dat
+	block2319633 []byte
+
+	//go:embed testdata/testnet4Block2215586.dat
+	block2215586 []byte
 )
 
 // TestBlock tests the MsgBlock API.
@@ -479,6 +509,77 @@ func TestBlockSerializeSize(t *testing.T) {
 				"%d", i, serializedSize, test.size)
 			continue
 		}
+	}
+}
+
+func TestDeserializeBlockBytes(t *testing.T) {
+	tests := []struct {
+		name       string
+		blk        []byte
+		wantHash   string
+		wantNumTx  int
+		wantLastTx string
+	}{
+		{
+			"block 1821752 pre-MWEB activation",
+			block1821752,
+			"ece484c02e84e4b1c551fbbdde3045e9096c970fbd3e31f2586b68d50dad6b24",
+			3,
+			"cb4d9d2d7ab7211ddf030a667d320fe499c849623e9d4a130e1901391e9d4947",
+		},
+		{
+			"block 2215584 MWEB",
+			block2215584,
+			"7e35fabe7b3c694ebeb0368a1a1c31e83962f3c5b4cc8dcede3ae94ed3deb306",
+			5,
+			"4c86658e64861c2f2b7fbbf26bbf7a6640ae3824d24293a009ad5ea1e8ab4418",
+		},
+		{
+			"block 2215586 MWEB",
+			block2215586,
+			"3000cc2076a568a8eb5f56a06112a57264446e2c7d2cca28cdc85d91820dfa17",
+			37,
+			"3a7299f5e6ee9975bdcc2d754ff5de3312d92db177b55c68753a1cdf9ce63a7c",
+		},
+		{
+			"block 2321749 MWEB",
+			block2321749,
+			"57929846db4a92d937eb596354d10949e33c815ee45df0c9b3bbdfb283e15bcd",
+			4,
+			"1bad5e78b145947d32eeeb1d24295891ba03359508d5f09921bada3be66bbe17",
+		},
+		{
+			"block 2319633 MWEB",
+			block2319633,
+			"e9fe2c6496aedefa8bf6529bdc5c1f9fd4af565ca4c98cab73e3a1f616fb3502",
+			2,
+			"3cd43df64e9382040eff0bf54ba1c2389d5111eb5ab0968ab7af67e3c30cac04",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var msg MsgBlock
+			r := bytes.NewReader(tt.blk)
+			err := msg.Deserialize(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			blkHash := msg.BlockHash()
+			if blkHash.String() != tt.wantHash {
+				t.Errorf("Wanted block hash %v, got %v", tt.wantHash, blkHash)
+			}
+
+			if len(msg.Transactions) != tt.wantNumTx {
+				t.Errorf("Wanted %d txns, found %d", tt.wantNumTx, len(msg.Transactions))
+			}
+
+			lastTxHash := msg.Transactions[len(msg.Transactions)-1].TxHash()
+			if lastTxHash.String() != tt.wantLastTx {
+				t.Errorf("Wanted last tx hash %v, got %v", tt.wantLastTx, lastTxHash)
+			}
+		})
 	}
 }
 
