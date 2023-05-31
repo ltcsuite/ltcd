@@ -156,31 +156,33 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 		prefix := addr[:oneIndex+1]
 		if chaincfg.IsBech32SegwitPrefix(prefix) {
 			witnessVer, witnessProg, err := decodeSegWitAddress(addr)
-			if err != nil {
-				return nil, err
-			}
-
-			// We currently only support P2WPKH and P2WSH, which is
-			// witness version 0 and P2TR which is witness version
-			// 1.
-			if witnessVer != 0 && witnessVer != 1 {
-				return nil, UnsupportedWitnessVerError(witnessVer)
-			}
-
-			// The HRP is everything before the found '1'.
-			hrp := prefix[:len(prefix)-1]
-
-			switch len(witnessProg) {
-			case 20:
-				return newAddressWitnessPubKeyHash(hrp, witnessProg)
-			case 32:
-				if witnessVer == 1 {
-					return newAddressTaproot(hrp, witnessProg)
+			// Some non-segwit addresses (for example, Litecoin `L` addresses)
+			// may also start with the segwit prefix even though they are
+			// legacy addresses. In this case decodeSegWitAddress returns error
+			// and we proceed to try decoding as a legacy address below.
+			if err == nil {
+				// We currently only support P2WPKH and P2WSH, which is
+				// witness version 0 and P2TR which is witness version
+				// 1.
+				if witnessVer != 0 && witnessVer != 1 {
+					return nil, UnsupportedWitnessVerError(witnessVer)
 				}
 
-				return newAddressWitnessScriptHash(hrp, witnessProg)
-			default:
-				return nil, UnsupportedWitnessProgLenError(len(witnessProg))
+				// The HRP is everything before the found '1'.
+				hrp := prefix[:len(prefix)-1]
+
+				switch len(witnessProg) {
+				case 20:
+					return newAddressWitnessPubKeyHash(hrp, witnessProg)
+				case 32:
+					if witnessVer == 1 {
+						return newAddressTaproot(hrp, witnessProg)
+					}
+
+					return newAddressWitnessScriptHash(hrp, witnessProg)
+				default:
+					return nil, UnsupportedWitnessProgLenError(len(witnessProg))
+				}
 			}
 		}
 	}

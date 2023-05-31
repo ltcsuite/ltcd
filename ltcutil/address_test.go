@@ -47,6 +47,24 @@ func TestAddresses(t *testing.T) {
 			net: &chaincfg.MainNetParams,
 		},
 		{
+			name:    "litecoin mainnet p2pkh with ltc1 prefix and no other '1' chars",
+			addr:    "LTC1f9gtb7bU6B4VjHXvPGDi8ACNZhkKPo",
+			encoded: "LTC1f9gtb7bU6B4VjHXvPGDi8ACNZhkKPo",
+			valid:   true,
+			result: ltcutil.TstAddressPubKeyHash(
+				[ripemd160.Size]byte{
+					0x57, 0x63, 0x02, 0x3d, 0x3f, 0x02, 0x50, 0x96, 0x44, 0xda,
+					0xcb, 0xfc, 0x45, 0xf2, 0xc9, 0x10, 0x21, 0x29, 0x74, 0x97},
+				chaincfg.MainNetParams.PubKeyHashAddrID),
+			f: func() (ltcutil.Address, error) {
+				pkHash := []byte{
+					0x57, 0x63, 0x02, 0x3d, 0x3f, 0x02, 0x50, 0x96, 0x44, 0xda,
+					0xcb, 0xfc, 0x45, 0xf2, 0xc9, 0x10, 0x21, 0x29, 0x74, 0x97}
+				return ltcutil.NewAddressPubKeyHash(pkHash, &chaincfg.MainNetParams)
+			},
+			net: &chaincfg.MainNetParams,
+		},
+		{
 			name:    "testnet p2pkh",
 			addr:    "mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz",
 			encoded: "mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz",
