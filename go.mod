@@ -33,4 +33,12 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
+replace github.com/ltcsuite/ltcd => ./
+
+replace github.com/ltcsuite/ltcd/btcec/v2 => ./btcec
+
+replace github.com/ltcsuite/ltcd/chaincfg/chainhash => ./chaincfg/chainhash
+
+replace github.com/ltcsuite/ltcd/ltcutil => ./ltcutil
+
 go 1.17
