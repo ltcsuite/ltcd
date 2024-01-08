@@ -22,6 +22,10 @@ const (
 	// InvWitnessFlag denotes that the inventory vector type is requesting,
 	// or sending a version which includes witness data.
 	InvWitnessFlag = 1 << 30
+
+	// InvMwebFlag denotes that the inventory vector type is requesting,
+	// or sending a version which includes MWEB data.
+	InvMwebFlag = 1 << 29
 )
 
 // InvType represents the allowed types of inventory vectors.  See InvVect.
@@ -36,6 +40,8 @@ const (
 	InvTypeWitnessBlock         InvType = InvTypeBlock | InvWitnessFlag
 	InvTypeWitnessTx            InvType = InvTypeTx | InvWitnessFlag
 	InvTypeFilteredWitnessBlock InvType = InvTypeFilteredBlock | InvWitnessFlag
+	InvTypeMwebHeader           InvType = 8 | InvMwebFlag
+	InvTypeMwebLeafset          InvType = 9 | InvMwebFlag
 )
 
 // Map of service flags back to their constant names for pretty printing.
@@ -47,6 +53,8 @@ var ivStrings = map[InvType]string{
 	InvTypeWitnessBlock:         "MSG_WITNESS_BLOCK",
 	InvTypeWitnessTx:            "MSG_WITNESS_TX",
 	InvTypeFilteredWitnessBlock: "MSG_FILTERED_WITNESS_BLOCK",
+	InvTypeMwebHeader:           "MSG_MWEB_HEADER",
+	InvTypeMwebLeafset:          "MSG_MWEB_LEAFSET",
 }
 
 // String returns the InvType in human-readable form.
