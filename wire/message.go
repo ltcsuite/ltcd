@@ -199,6 +199,15 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdCFCheckpt:
 		msg = &MsgCFCheckpt{}
 
+	case CmdMwebHeader:
+		msg = &MsgMwebHeader{}
+
+	case CmdMwebLeafset:
+		msg = &MsgMwebLeafset{}
+
+	case CmdMwebUtxos:
+		msg = &MsgMwebUtxos{}
+
 	default:
 		return nil, ErrUnknownMessage
 	}

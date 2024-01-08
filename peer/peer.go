@@ -203,6 +203,15 @@ type MessageListeners struct {
 	// OnSendAddrV2 is invoked when a peer receives a sendaddrv2 message.
 	OnSendAddrV2 func(p *Peer, msg *wire.MsgSendAddrV2)
 
+	// OnMwebHeader is invoked when a peer receives a mwebheader message.
+	OnMwebHeader func(p *Peer, msg *wire.MsgMwebHeader)
+
+	// OnMwebLeafset is invoked when a peer receives a mwebleafset message.
+	OnMwebLeafset func(p *Peer, msg *wire.MsgMwebLeafset)
+
+	// OnMwebUtxos is invoked when a peer receives a mwebutxos message.
+	OnMwebUtxos func(p *Peer, msg *wire.MsgMwebUtxos)
+
 	// OnRead is invoked when a peer receives a litecoin message.  It
 	// consists of the number of bytes read, the message, and whether or not
 	// an error in the read occurred.  Typically, callers will opt to use
@@ -1610,6 +1619,21 @@ out:
 
 			if p.cfg.Listeners.OnSendHeaders != nil {
 				p.cfg.Listeners.OnSendHeaders(p, msg)
+			}
+
+		case *wire.MsgMwebHeader:
+			if p.cfg.Listeners.OnMwebHeader != nil {
+				p.cfg.Listeners.OnMwebHeader(p, msg)
+			}
+
+		case *wire.MsgMwebLeafset:
+			if p.cfg.Listeners.OnMwebLeafset != nil {
+				p.cfg.Listeners.OnMwebLeafset(p, msg)
+			}
+
+		case *wire.MsgMwebUtxos:
+			if p.cfg.Listeners.OnMwebUtxos != nil {
+				p.cfg.Listeners.OnMwebUtxos(p, msg)
 			}
 
 		default:
