@@ -59,6 +59,10 @@ const (
 	CmdCFHeaders    = "cfheaders"
 	CmdCFCheckpt    = "cfcheckpt"
 	CmdSendAddrV2   = "sendaddrv2"
+	CmdMwebHeader   = "mwebheader"
+	CmdMwebLeafset  = "mwebleafset"
+	CmdGetMwebUtxos = "getmwebutxos"
+	CmdMwebUtxos    = "mwebutxos"
 )
 
 // MessageEncoding represents the wire message encoding format to be used.

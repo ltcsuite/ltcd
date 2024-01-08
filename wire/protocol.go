@@ -58,6 +58,10 @@ const (
 	// new messages that occur during the version-verack handshake will not
 	// come with a protocol version bump.
 	AddrV2Version uint32 = 70016
+
+	// MwebLightClientVersion is the protocol version which added four new messages.
+	// These are getmwebutxos, mwebutxos, mwebheader and mwebleafset.
+	MwebLightClientVersion uint32 = 70017
 )
 
 // ServiceFlag identifies services supported by a litecoin peer.
