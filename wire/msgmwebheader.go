@@ -26,18 +26,38 @@ type MwebHeader struct {
 // decoding mweb headers stored to disk, such as in a database, as opposed to
 // decoding from the wire.
 func readMwebHeader(r io.Reader, pver uint32, mh *MwebHeader) error {
-	return readElements(r, &mh.Height, &mh.OutputRoot, &mh.KernelRoot,
-		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset,
-		&mh.OutputMMRSize, &mh.KernelMMRSize)
+	err := readElements(r, &mh.Height, &mh.OutputRoot, &mh.KernelRoot,
+		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset)
+	if err != nil {
+		return err
+	}
+
+	mh.OutputMMRSize, err = ReadVarInt(r, pver)
+	if err != nil {
+		return err
+	}
+
+	mh.KernelMMRSize, err = ReadVarInt(r, pver)
+	return err
 }
 
 // writeMwebHeader writes a litecoin mweb header to w.  See Serialize for
 // encoding mweb headers to be stored to disk, such as in a database, as
 // opposed to encoding for the wire.
 func writeMwebHeader(w io.Writer, pver uint32, mh *MwebHeader) error {
-	return writeElements(w, mh.Height, &mh.OutputRoot, &mh.KernelRoot,
-		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset,
-		mh.OutputMMRSize, mh.KernelMMRSize)
+	err := writeElements(w, mh.Height, &mh.OutputRoot, &mh.KernelRoot,
+		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset)
+	if err != nil {
+		return err
+	}
+
+	err = WriteVarInt(w, pver, mh.OutputMMRSize)
+	if err != nil {
+		return err
+	}
+
+	err = WriteVarInt(w, pver, mh.KernelMMRSize)
+	return err
 }
 
 // MsgMwebHeader implements the Message interface and represents a litecoin
