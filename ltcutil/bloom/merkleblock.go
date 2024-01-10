@@ -21,10 +21,10 @@ type merkleBlock struct {
 	bits        []byte
 }
 
-type merkleExtractResult struct {
-	root     *chainhash.Hash
-	match    []*chainhash.Hash
-	index    []uint32
+type MerkleExtractResult struct {
+	Root     *chainhash.Hash
+	Match    []*chainhash.Hash
+	Index    []uint32
 	bitsUsed int
 	hashUsed int
 	bad      bool
@@ -88,7 +88,7 @@ func (m *merkleBlock) traverseAndBuild(height, pos uint32) {
 }
 
 func (m *merkleBlock) traverseAndExtract(height, pos uint32,
-	res *merkleExtractResult) *chainhash.Hash {
+	res *MerkleExtractResult) *chainhash.Hash {
 
 	if res.bitsUsed >= len(m.bits) {
 		// Overflowed the bits array - failure
@@ -112,8 +112,8 @@ func (m *merkleBlock) traverseAndExtract(height, pos uint32,
 
 		if height == 0 && parentOfMatch {
 			// In case of height 0, we have a matched txid
-			res.match = append(res.match, hash)
-			res.index = append(res.index, pos)
+			res.Match = append(res.Match, hash)
+			res.Index = append(res.Index, pos)
 		}
 		return hash
 
@@ -139,8 +139,8 @@ func (m *merkleBlock) traverseAndExtract(height, pos uint32,
 	}
 }
 
-func (m *merkleBlock) extractMatches() (res *merkleExtractResult) {
-	res = &merkleExtractResult{}
+func (m *merkleBlock) extractMatches() (res *MerkleExtractResult) {
+	res = &MerkleExtractResult{}
 
 	// An empty set will not work
 	if m.numTx == 0 {
@@ -188,7 +188,7 @@ func (m *merkleBlock) extractMatches() (res *merkleExtractResult) {
 		return
 	}
 
-	res.root = hashMerkleRoot
+	res.Root = hashMerkleRoot
 	return
 }
 
@@ -240,7 +240,7 @@ func NewMerkleBlock(block *ltcutil.Block, filter *Filter) (*wire.MsgMerkleBlock,
 }
 
 // VerifyMerkleBlock verifies the integrity of a merkle block.
-func VerifyMerkleBlock(msgMerkleBlock *wire.MsgMerkleBlock) bool {
+func VerifyMerkleBlock(msgMerkleBlock *wire.MsgMerkleBlock) *MerkleExtractResult {
 	mBlock := &merkleBlock{
 		numTx:       msgMerkleBlock.Transactions,
 		finalHashes: msgMerkleBlock.Hashes,
@@ -249,5 +249,5 @@ func VerifyMerkleBlock(msgMerkleBlock *wire.MsgMerkleBlock) bool {
 	for i := range mBlock.bits {
 		mBlock.bits[i] = msgMerkleBlock.Flags[i/8] & (1 << (i % 8))
 	}
-	return mBlock.extractMatches().root.IsEqual(&msgMerkleBlock.Header.MerkleRoot)
+	return mBlock.extractMatches()
 }
