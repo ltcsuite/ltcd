@@ -5,10 +5,12 @@
 package wire
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"lukechampine.com/blake3"
 )
 
 type MwebHeader struct {
@@ -22,10 +24,42 @@ type MwebHeader struct {
 	KernelMMRSize uint64
 }
 
-// readMwebHeader reads a litecoin mweb header from r.  See Deserialize for
-// decoding mweb headers stored to disk, such as in a database, as opposed to
-// decoding from the wire.
-func readMwebHeader(r io.Reader, pver uint32, mh *MwebHeader) error {
+// the Litecoin-internal VarInt encoding
+func writeVarInt(w io.Writer, n uint64) error {
+	var buf [10]byte
+	i := 0
+	for ; ; i++ {
+		buf[i] = byte(n & 0x7f)
+		if i > 0 {
+			buf[i] |= 0x80
+		}
+		if n < 0x80 {
+			break
+		}
+		n = (n >> 7) - 1
+	}
+	for ; i >= 0; i-- {
+		if _, err := w.Write(buf[i : i+1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mh *MwebHeader) Hash() chainhash.Hash {
+	var buf bytes.Buffer
+	writeVarInt(&buf, uint64(mh.Height))
+	writeElements(&buf, &mh.OutputRoot, &mh.KernelRoot,
+		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset)
+	writeVarInt(&buf, mh.OutputMMRSize)
+	writeVarInt(&buf, mh.KernelMMRSize)
+	return blake3.Sum256(buf.Bytes())
+}
+
+// Reads a litecoin mweb header from r.  See Deserialize for
+// decoding mweb headers stored to disk, such as in a database,
+// as opposed to decoding from the wire.
+func (mh *MwebHeader) read(r io.Reader, pver uint32) error {
 	err := readElements(r, &mh.Height, &mh.OutputRoot, &mh.KernelRoot,
 		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset)
 	if err != nil {
@@ -41,10 +75,10 @@ func readMwebHeader(r io.Reader, pver uint32, mh *MwebHeader) error {
 	return err
 }
 
-// writeMwebHeader writes a litecoin mweb header to w.  See Serialize for
-// encoding mweb headers to be stored to disk, such as in a database, as
-// opposed to encoding for the wire.
-func writeMwebHeader(w io.Writer, pver uint32, mh *MwebHeader) error {
+// Writes a litecoin mweb header to w.  See Serialize for
+// encoding mweb headers to be stored to disk, such as in
+// a database, as opposed to encoding for the wire.
+func (mh *MwebHeader) write(w io.Writer, pver uint32) error {
 	err := writeElements(w, mh.Height, &mh.OutputRoot, &mh.KernelRoot,
 		&mh.LeafsetRoot, &mh.KernelOffset, &mh.StealthOffset)
 	if err != nil {
@@ -89,7 +123,7 @@ func (msg *MsgMwebHeader) BtcDecode(r io.Reader, pver uint32, enc MessageEncodin
 		return err
 	}
 
-	return readMwebHeader(r, pver, &msg.MwebHeader)
+	return msg.MwebHeader.read(r, pver)
 }
 
 // BtcEncode encodes the receiver to w using the litecoin protocol encoding.
@@ -111,7 +145,7 @@ func (msg *MsgMwebHeader) BtcEncode(w io.Writer, pver uint32, enc MessageEncodin
 		return err
 	}
 
-	return writeMwebHeader(w, pver, &msg.MwebHeader)
+	return msg.MwebHeader.write(w, pver)
 }
 
 // Command returns the protocol command string for the message.  This is part
