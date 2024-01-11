@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"lukechampine.com/blake3"
 )
 
 const (
@@ -49,10 +50,24 @@ type (
 	}
 )
 
-// readMwebOutputMessage reads a litecoin mweb output message from r.  See Deserialize for
-// decoding mweb output messages stored to disk, such as in a database, as opposed to
-// decoding from the wire.
-func readMwebOutputMessage(r io.Reader, pver uint32, om *MwebOutputMessage) error {
+func (om *MwebOutputMessage) Hash() (hash chainhash.Hash) {
+	h := blake3.New(32, nil)
+	om.write(h, 0)
+	h.Sum(hash[:0])
+	return
+}
+
+func (mo *MwebOutput) Hash() (hash chainhash.Hash) {
+	h := blake3.New(32, nil)
+	mo.write(h, 0, true, true)
+	h.Sum(hash[:0])
+	return
+}
+
+// Reads a litecoin mweb output message from r.  See Deserialize for
+// decoding mweb output messages stored to disk, such as in a database,
+// as opposed to decoding from the wire.
+func (om *MwebOutputMessage) read(r io.Reader, pver uint32) error {
 	err := readElement(r, &om.Features)
 	if err != nil {
 		return err
@@ -71,7 +86,8 @@ func readMwebOutputMessage(r io.Reader, pver uint32, om *MwebOutputMessage) erro
 	}
 
 	if om.Features&MwebOutputMessageExtraDataFeatureBit > 0 {
-		if om.ExtraData, err = ReadVarBytes(r, pver, MaxMessagePayload, "ExtraData"); err != nil {
+		om.ExtraData, err = ReadVarBytes(r, pver, MaxMessagePayload, "ExtraData")
+		if err != nil {
 			return err
 		}
 	}
@@ -79,10 +95,10 @@ func readMwebOutputMessage(r io.Reader, pver uint32, om *MwebOutputMessage) erro
 	return err
 }
 
-// writeMwebOutputMessage writes a litecoin mweb output message to w.  See Serialize for
-// encoding mweb output messages to be stored to disk, such as in a database, as
-// opposed to encoding for the wire.
-func writeMwebOutputMessage(w io.Writer, pver uint32, om *MwebOutputMessage) error {
+// Writes a litecoin mweb output message to w.  See Serialize for
+// encoding mweb output messages to be stored to disk, such as in
+// a database, as opposed to encoding for the wire.
+func (om *MwebOutputMessage) write(w io.Writer, pver uint32) error {
 	err := writeElement(w, om.Features)
 	if err != nil {
 		return err
@@ -109,10 +125,10 @@ func writeMwebOutputMessage(w io.Writer, pver uint32, om *MwebOutputMessage) err
 	return err
 }
 
-// readMwebOutput reads a litecoin mweb output from r.  See Deserialize for
-// decoding mweb outputs stored to disk, such as in a database, as opposed to
-// decoding from the wire.
-func readMwebOutput(r io.Reader, pver uint32, mo *MwebOutput, compact bool) error {
+// Reads a litecoin mweb output from r.  See Deserialize for
+// decoding mweb outputs stored to disk, such as in a database,
+// as opposed to decoding from the wire.
+func (mo *MwebOutput) read(r io.Reader, pver uint32, compact bool) error {
 	_, err := io.ReadFull(r, mo.Commitment[:])
 	if err != nil {
 		return err
@@ -128,7 +144,7 @@ func readMwebOutput(r io.Reader, pver uint32, mo *MwebOutput, compact bool) erro
 		return err
 	}
 
-	err = readMwebOutputMessage(r, pver, &mo.Message)
+	err = mo.Message.read(r, pver)
 	if err != nil {
 		return err
 	}
@@ -138,22 +154,19 @@ func readMwebOutput(r io.Reader, pver uint32, mo *MwebOutput, compact bool) erro
 		if err != nil {
 			return err
 		}
+		mo.RangeProofHash = blake3.Sum256(mo.RangeProof)
 	} else if err = readElement(r, &mo.RangeProofHash); err != nil {
 		return err
 	}
 
 	_, err = io.ReadFull(r, mo.Signature[:])
-	if err != nil {
-		return err
-	}
-
 	return err
 }
 
-// writeMwebOutput writes a litecoin mweb output to w.  See Serialize for
-// encoding mweb outputs to be stored to disk, such as in a database, as
-// opposed to encoding for the wire.
-func writeMwebOutput(w io.Writer, pver uint32, mo *MwebOutput, compact bool) error {
+// Writes a litecoin mweb output to w.  See Serialize for
+// encoding mweb outputs to be stored to disk, such as in
+// a database, as opposed to encoding for the wire.
+func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) error {
 	_, err := w.Write(mo.Commitment[:])
 	if err != nil {
 		return err
@@ -169,69 +182,83 @@ func writeMwebOutput(w io.Writer, pver uint32, mo *MwebOutput, compact bool) err
 		return err
 	}
 
-	err = writeMwebOutputMessage(w, pver, &mo.Message)
+	if hashing {
+		h := mo.Message.Hash()
+		_, err = w.Write(h[:])
+	} else {
+		err = mo.Message.write(w, pver)
+	}
 	if err != nil {
 		return err
 	}
 
-	if !compact {
+	if compact || hashing {
+		err = writeElement(w, &mo.RangeProofHash)
+	} else {
 		err = WriteVarBytes(w, pver, mo.RangeProof)
-		if err != nil {
-			return err
-		}
-	} else if err = writeElement(w, &mo.RangeProofHash); err != nil {
+	}
+	if err != nil {
 		return err
 	}
 
 	_, err = w.Write(mo.Signature[:])
-	if err != nil {
-		return err
-	}
-
 	return err
 }
 
 // readMwebNetUtxo reads a litecoin mweb utxo from r.  See Deserialize for
 // decoding mweb utxos stored to disk, such as in a database, as opposed to
 // decoding from the wire.
-func readMwebNetUtxo(r io.Reader, pver uint32, utxo *MwebNetUtxo, utxoType MwebNetUtxoType) error {
-	var err error
+func readMwebNetUtxo(r io.Reader, pver uint32, utxo *MwebNetUtxo,
+	utxoType MwebNetUtxoType) (err error) {
 
 	utxo.LeafIndex, err = ReadVarInt(r, pver)
 	if err != nil {
-		return err
+		return
 	}
 
 	switch utxoType {
 	case MwebNetUtxoFull:
 		utxo.Output = new(MwebOutput)
-		err = readMwebOutput(r, pver, utxo.Output, false)
+		err = utxo.Output.read(r, pver, false)
 	case MwebNetUtxoHashOnly:
 		err = readElement(r, &utxo.OutputId)
 	case MwebNetUtxoCompact:
 		utxo.Output = new(MwebOutput)
-		err = readMwebOutput(r, pver, utxo.Output, true)
+		err = utxo.Output.read(r, pver, true)
+	}
+	if err != nil {
+		return
 	}
 
-	return err
+	if utxo.Output != nil {
+		utxo.OutputId = utxo.Output.Hash()
+	}
+
+	return
 }
 
 // writeMwebNetUtxo writes a litecoin mweb utxo to w.  See Serialize for
 // encoding mweb utxos to be stored to disk, such as in a database, as
 // opposed to encoding for the wire.
-func writeMwebNetUtxo(w io.Writer, pver uint32, utxo *MwebNetUtxo, utxoType MwebNetUtxoType) error {
+func writeMwebNetUtxo(w io.Writer, pver uint32, utxo *MwebNetUtxo,
+	utxoType MwebNetUtxoType) error {
+
 	err := WriteVarInt(w, pver, utxo.LeafIndex)
 	if err != nil {
 		return err
 	}
 
+	if utxo.Output != nil {
+		utxo.OutputId = utxo.Output.Hash()
+	}
+
 	switch utxoType {
 	case MwebNetUtxoFull:
-		err = writeMwebOutput(w, pver, utxo.Output, false)
+		err = utxo.Output.write(w, pver, false, false)
 	case MwebNetUtxoHashOnly:
 		err = writeElement(w, &utxo.OutputId)
 	case MwebNetUtxoCompact:
-		err = writeMwebOutput(w, pver, utxo.Output, true)
+		err = utxo.Output.write(w, pver, true, false)
 	}
 
 	return err
@@ -367,7 +394,9 @@ func (msg *MsgMwebUtxos) MaxPayloadLength(pver uint32) uint32 {
 
 // NewMsgMwebUtxos returns a new litecoin mwebutxos message that conforms to
 // the Message interface.  See MsgMwebUtxos for details.
-func NewMsgMwebUtxos(blockHash *chainhash.Hash, startIndex uint64, outputFormat MwebNetUtxoType) *MsgMwebUtxos {
+func NewMsgMwebUtxos(blockHash *chainhash.Hash, startIndex uint64,
+	outputFormat MwebNetUtxoType) *MsgMwebUtxos {
+
 	return &MsgMwebUtxos{
 		BlockHash:    *blockHash,
 		StartIndex:   startIndex,
