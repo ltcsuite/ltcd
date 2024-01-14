@@ -38,7 +38,7 @@ type (
 		SenderPubKey   MwebPubKey
 		ReceiverPubKey MwebPubKey
 		Message        MwebOutputMessage
-		RangeProof     []byte
+		RangeProof     [675]byte
 		RangeProofHash chainhash.Hash
 		Signature      MwebSignature
 	}
@@ -150,11 +150,10 @@ func (mo *MwebOutput) read(r io.Reader, pver uint32, compact bool) error {
 	}
 
 	if !compact {
-		mo.RangeProof, err = ReadVarBytes(r, pver, MaxMessagePayload, "RangeProof")
-		if err != nil {
+		if _, err = io.ReadFull(r, mo.RangeProof[:]); err != nil {
 			return err
 		}
-		mo.RangeProofHash = blake3.Sum256(mo.RangeProof)
+		mo.RangeProofHash = blake3.Sum256(mo.RangeProof[:])
 	} else if err = readElement(r, &mo.RangeProofHash); err != nil {
 		return err
 	}
@@ -195,7 +194,7 @@ func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) err
 	if compact || hashing {
 		err = writeElement(w, &mo.RangeProofHash)
 	} else {
-		err = WriteVarBytes(w, pver, mo.RangeProof)
+		_, err = w.Write(mo.RangeProof[:])
 	}
 	if err != nil {
 		return err
