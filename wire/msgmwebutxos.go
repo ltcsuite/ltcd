@@ -204,6 +204,14 @@ func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) err
 	return err
 }
 
+func (mo *MwebOutput) Serialize(w io.Writer) error {
+	return mo.write(w, 0, true, false)
+}
+
+func (mo *MwebOutput) Deserialize(r io.Reader) error {
+	return mo.read(r, 0, true)
+}
+
 // readMwebNetUtxo reads a litecoin mweb utxo from r.  See Deserialize for
 // decoding mweb utxos stored to disk, such as in a database, as opposed to
 // decoding from the wire.
