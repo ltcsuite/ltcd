@@ -5,6 +5,8 @@
 package wire
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -205,11 +207,19 @@ func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) err
 }
 
 func (mo *MwebOutput) Serialize(w io.Writer) error {
-	return mo.write(w, 0, true, false)
+	compact := bytes.Count(mo.RangeProof[:], []byte{0}) == len(mo.RangeProof)
+	if err := binary.Write(w, binary.LittleEndian, compact); err != nil {
+		return err
+	}
+	return mo.write(w, 0, compact, false)
 }
 
 func (mo *MwebOutput) Deserialize(r io.Reader) error {
-	return mo.read(r, 0, true)
+	var compact bool
+	if err := binary.Read(r, binary.LittleEndian, &compact); err != nil {
+		return err
+	}
+	return mo.read(r, 0, compact)
 }
 
 // readMwebNetUtxo reads a litecoin mweb utxo from r.  See Deserialize for
