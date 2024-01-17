@@ -35,6 +35,7 @@ func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 	secp256k1.ScalarBaseMultNonConst(&bs, &bj)
 	secp256k1.ScalarMultNonConst(&vs, &H, &rj)
 	secp256k1.AddNonConst(&bj, &rj, &rj)
+	rj.ToAffine()
 
 	c := &Commitment{8}
 	rj.X.PutBytesUnchecked(c[1:])

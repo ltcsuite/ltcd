@@ -12,6 +12,7 @@ func mulPubKey(pk []byte, k *secp256k1.ModNScalar) *PublicKey {
 	var p secp256k1.JacobianPoint
 	key.AsJacobian(&p)
 	secp256k1.ScalarMultNonConst(k, &p, &p)
+	p.ToAffine()
 	key = secp256k1.NewPublicKey(&p.X, &p.Y)
 	return (*PublicKey)(key.SerializeCompressed())
 }
