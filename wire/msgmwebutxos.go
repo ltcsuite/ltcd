@@ -9,8 +9,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/big"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"lukechampine.com/blake3"
 )
 
@@ -20,29 +22,25 @@ const (
 )
 
 type (
-	MwebCommitment [33]byte
-	MwebPubKey     [33]byte
-	MwebSignature  [64]byte
-
 	MwebOutputMessageFeatureBit byte
 
 	MwebOutputMessage struct {
 		Features          MwebOutputMessageFeatureBit
-		KeyExchangePubKey MwebPubKey
+		KeyExchangePubKey mw.PublicKey
 		ViewTag           byte
 		MaskedValue       uint64
-		MaskedNonce       [16]byte
+		MaskedNonce       big.Int
 		ExtraData         []byte
 	}
 
 	MwebOutput struct {
-		Commitment     MwebCommitment
-		SenderPubKey   MwebPubKey
-		ReceiverPubKey MwebPubKey
+		Commitment     mw.Commitment
+		SenderPubKey   mw.PublicKey
+		ReceiverPubKey mw.PublicKey
 		Message        MwebOutputMessage
 		RangeProof     [675]byte
 		RangeProofHash chainhash.Hash
-		Signature      MwebSignature
+		Signature      mw.Signature
 	}
 
 	MwebNetUtxo struct {
@@ -82,9 +80,11 @@ func (om *MwebOutputMessage) read(r io.Reader, pver uint32) error {
 		if err = readElements(r, &om.ViewTag, &om.MaskedValue); err != nil {
 			return err
 		}
-		if _, err = io.ReadFull(r, om.MaskedNonce[:]); err != nil {
+		var maskedNonce [16]byte
+		if _, err = io.ReadFull(r, maskedNonce[:]); err != nil {
 			return err
 		}
+		om.MaskedNonce.SetBytes(maskedNonce[:])
 	}
 
 	if om.Features&MwebOutputMessageExtraDataFeatureBit > 0 {
@@ -113,7 +113,9 @@ func (om *MwebOutputMessage) write(w io.Writer, pver uint32) error {
 		if err = writeElements(w, om.ViewTag, om.MaskedValue); err != nil {
 			return err
 		}
-		if _, err = w.Write(om.MaskedNonce[:]); err != nil {
+		var maskedNonce [16]byte
+		om.MaskedNonce.FillBytes(maskedNonce[:])
+		if _, err = w.Write(maskedNonce[:]); err != nil {
 			return err
 		}
 	}
