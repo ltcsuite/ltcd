@@ -28,13 +28,13 @@ func NewBlindingFactor(data *[32]byte) *BlindingFactor {
 
 func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	var blindScalar, blindSwitchScalar secp256k1.ModNScalar
-	if blindScalar.SetByteSlice(blind.Bytes()) {
+	if blindScalar.SetBytes((*[32]byte)(blind.FillBytes(make([]byte, 32)))) > 0 {
 		panic("overflowed")
 	}
 	h := sha256.New()
 	h.Write(NewCommitment(blind, value)[:])
 	h.Write(mulPubKey(generatorJPubKey[:], &blindScalar)[:])
-	if blindSwitchScalar.SetByteSlice(h.Sum(nil)) {
+	if blindSwitchScalar.SetBytes((*[32]byte)(h.Sum(nil))) > 0 {
 		panic("overflowed")
 	}
 	blindSwitchScalar.Add(&blindScalar)

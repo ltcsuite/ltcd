@@ -88,13 +88,20 @@ func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, err
 		return nil, errors.New("key exchange pubkey mismatch")
 	}
 
-	coin := &Coin{
-		AddressIndex: 0,
+	return &Coin{
 		Blind:        mask.Blind,
 		Value:        ltcutil.Amount(value),
 		OutputId:     output.Hash(),
 		Address:      address,
 		SharedSecret: t,
+	}, nil
+}
+
+func (coin *Coin) CalculateOutputKey(spendKey *mw.SecretKey) {
+	if coin.SpendKey != nil || coin.SharedSecret == nil {
+		return
 	}
-	return coin, nil
+	coin.SpendKey = spendKey.Mul(
+		(*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, coin.SharedSecret[:])),
+	)
 }

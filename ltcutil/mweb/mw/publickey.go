@@ -19,17 +19,9 @@ func mulPubKey(pk []byte, k *secp256k1.ModNScalar) *PublicKey {
 }
 
 func (pk *PublicKey) Mul(sk *SecretKey) *PublicKey {
-	var k secp256k1.ModNScalar
-	if k.SetByteSlice(sk[:]) {
-		panic("overflowed")
-	}
-	return mulPubKey(pk[:], &k)
+	return mulPubKey(pk[:], sk.scalar())
 }
 
 func (pk *PublicKey) Div(sk *SecretKey) *PublicKey {
-	var k secp256k1.ModNScalar
-	if k.SetByteSlice(sk[:]) {
-		panic("overflowed")
-	}
-	return mulPubKey(pk[:], k.InverseNonConst())
+	return mulPubKey(pk[:], sk.scalar().InverseNonConst())
 }

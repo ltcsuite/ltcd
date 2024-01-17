@@ -21,12 +21,12 @@ var generatorH = [64]byte{
 
 func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 	var H secp256k1.JacobianPoint
-	H.X.SetByteSlice(generatorH[:32])
-	H.Y.SetByteSlice(generatorH[32:])
+	H.X.SetBytes((*[32]byte)(generatorH[:32]))
+	H.Y.SetBytes((*[32]byte)(generatorH[32:]))
 	H.Z.SetInt(1)
 
 	var bs, vs secp256k1.ModNScalar
-	if bs.SetByteSlice(blind.Bytes()) {
+	if bs.SetBytes((*[32]byte)(blind.FillBytes(make([]byte, 32)))) > 0 {
 		panic("overflowed")
 	}
 	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
