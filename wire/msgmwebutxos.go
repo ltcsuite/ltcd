@@ -46,22 +46,20 @@ type (
 	MwebNetUtxo struct {
 		LeafIndex uint64
 		Output    *MwebOutput
-		OutputId  chainhash.Hash
+		OutputId  *chainhash.Hash
 	}
 )
 
-func (om *MwebOutputMessage) Hash() (hash chainhash.Hash) {
+func (om *MwebOutputMessage) Hash() *chainhash.Hash {
 	h := blake3.New(32, nil)
 	om.write(h, 0)
-	h.Sum(hash[:0])
-	return
+	return (*chainhash.Hash)(h.Sum(nil))
 }
 
-func (mo *MwebOutput) Hash() (hash chainhash.Hash) {
+func (mo *MwebOutput) Hash() *chainhash.Hash {
 	h := blake3.New(32, nil)
 	mo.write(h, 0, true, true)
-	h.Sum(hash[:0])
-	return
+	return (*chainhash.Hash)(h.Sum(nil))
 }
 
 // Reads a litecoin mweb output message from r.  See Deserialize for

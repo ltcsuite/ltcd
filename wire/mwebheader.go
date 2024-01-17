@@ -118,9 +118,8 @@ func (mh *MwebHeader) write(w io.Writer) error {
 }
 
 // Hash of the mweb header
-func (mh *MwebHeader) Hash() (hash chainhash.Hash) {
+func (mh *MwebHeader) Hash() *chainhash.Hash {
 	h := blake3.New(32, nil)
 	mh.write(h)
-	h.Sum(hash[:0])
-	return
+	return (*chainhash.Hash)(h.Sum(nil))
 }
