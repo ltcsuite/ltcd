@@ -29,3 +29,12 @@ func (s *SecretKey) Mul(sk *SecretKey) *SecretKey {
 	r := SecretKey(k.Mul(sk.scalar()).Bytes())
 	return &r
 }
+
+func (s *SecretKey) PubKey() *PublicKey {
+	k := s.scalar()
+	if k.IsZero() {
+		k.SetInt(1)
+	}
+	key := secp256k1.NewPrivateKey(k).PubKey()
+	return (*PublicKey)(key.SerializeCompressed())
+}

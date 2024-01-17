@@ -1,8 +1,6 @@
 package mw
 
-import (
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-)
+import "github.com/decred/dcrd/dcrec/secp256k1/v4"
 
 type PublicKey [33]byte
 
