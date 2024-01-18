@@ -35,6 +35,9 @@ func TestRewindOutput(t *testing.T) {
 	if coin.Value != 0.1*ltcutil.SatoshiPerBitcoin {
 		t.Error("unexpected value")
 	}
+	if !coin.Address.Equal(keys.Address(0)) {
+		t.Error("unexpected address")
+	}
 	addr, err := ltcutil.NewAddressMweb(coin.Address, &chaincfg.TestNet4Params)
 	if err != nil {
 		t.Errorf("NewAddressMweb failed: %s", err.Error())
