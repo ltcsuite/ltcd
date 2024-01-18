@@ -2,12 +2,11 @@ package mw
 
 import (
 	"crypto/sha256"
-	"math/big"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
-type BlindingFactor struct{ big.Int }
+type BlindingFactor [32]byte
 
 var generatorJPubKey = [65]byte{0x04,
 	0x5f, 0x15, 0x21, 0x36, 0x93, 0x93, 0x01, 0x2a,
@@ -20,15 +19,9 @@ var generatorJPubKey = [65]byte{0x04,
 	0x53, 0x8f, 0xaa, 0x2c, 0xd3, 0x09, 0x3f, 0xa4,
 }
 
-func NewBlindingFactor(data *[32]byte) *BlindingFactor {
-	blind := &BlindingFactor{}
-	blind.SetBytes(data[:])
-	return blind
-}
-
 func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	var blindScalar, blindSwitchScalar secp256k1.ModNScalar
-	if blindScalar.SetBytes((*[32]byte)(blind.FillBytes(make([]byte, 32)))) > 0 {
+	if blindScalar.SetBytes((*[32]byte)(blind)) > 0 {
 		panic("overflowed")
 	}
 	h := sha256.New()
@@ -38,6 +31,6 @@ func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 		panic("overflowed")
 	}
 	blindSwitchScalar.Add(&blindScalar)
-	data := blindSwitchScalar.Bytes()
-	return NewBlindingFactor(&data)
+	ret := BlindingFactor(blindSwitchScalar.Bytes())
+	return &ret
 }

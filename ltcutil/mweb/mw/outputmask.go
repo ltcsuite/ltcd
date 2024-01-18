@@ -18,7 +18,7 @@ type OutputMask struct {
 //	n' - the nonce mask
 func OutputMaskFromShared(sharedSecret *SecretKey) *OutputMask {
 	mask := &OutputMask{
-		Blind:     NewBlindingFactor(Hashed(HashTagBlind, sharedSecret[:])),
+		Blind:     (*BlindingFactor)(Hashed(HashTagBlind, sharedSecret[:])),
 		valueMask: binary.LittleEndian.Uint64(Hashed(HashTagValueMask, sharedSecret[:])[:]),
 	}
 	mask.nonceMask.SetBytes(Hashed(HashTagNonceMask, sharedSecret[:])[:16])

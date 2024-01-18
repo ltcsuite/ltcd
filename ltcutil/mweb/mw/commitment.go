@@ -26,7 +26,7 @@ func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 	H.Z.SetInt(1)
 
 	var bs, vs secp256k1.ModNScalar
-	if bs.SetBytes((*[32]byte)(blind.FillBytes(make([]byte, 32)))) > 0 {
+	if bs.SetBytes((*[32]byte)(blind)) > 0 {
 		panic("overflowed")
 	}
 	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
