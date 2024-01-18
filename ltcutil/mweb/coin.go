@@ -1,7 +1,6 @@
 package mweb
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 
@@ -71,7 +70,7 @@ func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, err
 	value := mask.MaskValue(output.Message.MaskedValue)
 	n := mask.MaskNonce(&output.Message.MaskedNonce)
 
-	if !bytes.Equal(mask.SwitchCommit(value)[:], output.Commitment[:]) {
+	if *mask.SwitchCommit(value) != output.Commitment {
 		return nil, errors.New("commitment mismatch")
 	}
 
@@ -84,7 +83,7 @@ func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, err
 	h.Write(n.FillBytes(make([]byte, 16)))
 	s := (*mw.SecretKey)(h.Sum(nil))
 
-	if !bytes.Equal(output.Message.KeyExchangePubKey[:], address.B().Mul(s)[:]) {
+	if output.Message.KeyExchangePubKey != *address.B().Mul(s) {
 		return nil, errors.New("key exchange pubkey mismatch")
 	}
 

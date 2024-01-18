@@ -1,7 +1,5 @@
 package mw
 
-import "bytes"
-
 type StealthAddress struct {
 	Scan, Spend *PublicKey
 }
@@ -15,6 +13,5 @@ func (sa *StealthAddress) B() *PublicKey {
 }
 
 func (sa *StealthAddress) Equal(addr *StealthAddress) bool {
-	return bytes.Equal(sa.Scan[:], addr.Scan[:]) &&
-		bytes.Equal(sa.Spend[:], addr.Spend[:])
+	return *sa.Scan == *addr.Scan && *sa.Spend == *addr.Spend
 }
