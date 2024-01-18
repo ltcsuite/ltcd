@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcsuite/ltcd/ltcutil"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
@@ -30,8 +32,15 @@ func TestRewindOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RewindOutput failed: %s", err.Error())
 	}
-	coin.CalculateOutputKey(keys.SpendKey(0))
-	if coin.SpendKey == nil {
-		t.Fatalf("CalculateOutputKey failed: %s", err.Error())
+	if coin.Value != 0.1*ltcutil.SatoshiPerBitcoin {
+		t.Error("unexpected value")
+	}
+	addr, err := ltcutil.NewAddressMweb(coin.Address, &chaincfg.TestNet4Params)
+	if err != nil {
+		t.Errorf("NewAddressMweb failed: %s", err.Error())
+	}
+	if addr.String() != "tmweb1qqv0mlyyk7sl09jkcrgy059m5yplw567ypuj6lxpwkcw4tl8m59p7wq6jc"+
+		"6prtph5kf45kdlql8fjppr32nmwng34fs6ess9fq72ck7lfyvmr6s0c" {
+		t.Error("unexpected address")
 	}
 }

@@ -258,6 +258,9 @@ type Params struct {
 	// in BIP 173.
 	Bech32HRPSegwit string
 
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb string
+
 	// Address encoding magics
 	PubKeyHashAddrID        byte // First byte of a P2PKH address
 	ScriptHashAddrID        byte // First byte of a P2SH address
@@ -389,6 +392,9 @@ var MainNetParams = Params{
 	// BIP 173.
 	Bech32HRPSegwit: "ltc", // always ltc for main net
 
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "ltcmweb", // always ltcmweb for main net
+
 	// Address encoding magics
 	PubKeyHashAddrID:        0x30, // starts with L
 	ScriptHashAddrID:        0x32, // starts with M
@@ -498,6 +504,9 @@ var RegressionNetParams = Params{
 	// Human-readable part for Bech32 encoded segwit addresses, as defined in
 	// BIP 173.
 	Bech32HRPSegwit: "rltc", // always rltc for reg test net
+
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "tmweb", // always tmweb for reg test net
 
 	// Address encoding magics
 	PubKeyHashAddrID: 0x6f, // starts with m or n
@@ -616,6 +625,9 @@ var TestNet4Params = Params{
 	// Human-readable part for Bech32 encoded segwit addresses, as defined in
 	// BIP 173.
 	Bech32HRPSegwit: "tltc", // always tltc for test net
+
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "tmweb", // always tmweb for test net
 
 	// Address encoding magics
 	PubKeyHashAddrID:        0x6f, // starts with m or n

@@ -15,6 +15,7 @@ import (
 	"github.com/ltcsuite/ltcd/chaincfg"
 	"github.com/ltcsuite/ltcd/ltcutil/base58"
 	"github.com/ltcsuite/ltcd/ltcutil/bech32"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -710,4 +711,67 @@ func newAddressTaproot(hrp string,
 	}
 
 	return addr, nil
+}
+
+// AddressMweb is an Address for an MWEB output.
+type AddressMweb struct {
+	hrp string
+	sa  *mw.StealthAddress
+}
+
+// NewAddressMweb returns a new AddressMweb.
+func NewAddressMweb(sa *mw.StealthAddress,
+	net *chaincfg.Params) (*AddressMweb, error) {
+
+	addr := &AddressMweb{
+		hrp: strings.ToLower(net.Bech32HRPMweb),
+		sa:  sa,
+	}
+
+	return addr, nil
+}
+
+// EncodeAddress returns the bech32 string encoding of an AddressMweb.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) EncodeAddress() string {
+	var buf bytes.Buffer
+	buf.Write(a.sa.Scan[:])
+	buf.Write(a.sa.Spend[:])
+
+	converted, err := bech32.ConvertBits(buf.Bytes(), 8, 5, true)
+	if err != nil {
+		return ""
+	}
+	bech, _ := bech32.Encode(a.hrp, append([]byte{0}, converted...))
+	return bech
+}
+
+// ScriptAddress returns the witness program for this address.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) ScriptAddress() []byte {
+	return nil
+}
+
+// IsForNet returns whether the AddressMweb is associated with the passed
+// litecoin network.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) IsForNet(net *chaincfg.Params) bool {
+	return a.hrp == net.Bech32HRPMweb
+}
+
+// String returns a human-readable string for the AddressMweb.
+// This is equivalent to calling EncodeAddress, but is provided so the type
+// can be used as a fmt.Stringer.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) String() string {
+	return a.EncodeAddress()
+}
+
+// Hrp returns the human-readable part of the bech32 encoded AddressMweb.
+func (a *AddressMweb) Hrp() string {
+	return a.hrp
 }
