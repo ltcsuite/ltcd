@@ -39,7 +39,7 @@ func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 
 	c := &Commitment{8}
 	rj.X.PutBytesUnchecked(c[1:])
-	if !rj.Y.SquareRootVal(&rj.Y) {
+	if !rj.X.SquareRootVal(&rj.Y) {
 		c[0]++
 	}
 	return c
