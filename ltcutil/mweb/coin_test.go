@@ -38,10 +38,7 @@ func TestRewindOutput(t *testing.T) {
 	if !coin.Address.Equal(keys.Address(0)) {
 		t.Error("unexpected address")
 	}
-	addr, err := ltcutil.NewAddressMweb(coin.Address, &chaincfg.TestNet4Params)
-	if err != nil {
-		t.Errorf("NewAddressMweb failed: %s", err.Error())
-	}
+	addr := ltcutil.NewAddressMweb(coin.Address, &chaincfg.TestNet4Params)
 	if addr.String() != "tmweb1qqv0mlyyk7sl09jkcrgy059m5yplw567ypuj6lxpwkcw4tl8m59p7wq6jc"+
 		"6prtph5kf45kdlql8fjppr32nmwng34fs6ess9fq72ck7lfyvmr6s0c" {
 		t.Error("unexpected address")

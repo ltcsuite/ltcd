@@ -23,7 +23,7 @@ func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	}
 	h := sha256.New()
 	h.Write(NewCommitment(blind, value)[:])
-	h.Write(mulPubKey(generatorJPubKey[:], &blindScalar)[:])
+	h.Write(pubKeyMul(generatorJPubKey[:], &blindScalar)[:])
 	if blindSwitchScalar.SetBytes((*[32]byte)(h.Sum(nil))) > 0 {
 		panic("overflowed")
 	}

@@ -720,26 +720,18 @@ type AddressMweb struct {
 }
 
 // NewAddressMweb returns a new AddressMweb.
-func NewAddressMweb(sa *mw.StealthAddress,
-	net *chaincfg.Params) (*AddressMweb, error) {
-
-	addr := &AddressMweb{
+func NewAddressMweb(sa *mw.StealthAddress, net *chaincfg.Params) *AddressMweb {
+	return &AddressMweb{
 		hrp: strings.ToLower(net.Bech32HRPMweb),
 		sa:  sa,
 	}
-
-	return addr, nil
 }
 
 // EncodeAddress returns the bech32 string encoding of an AddressMweb.
 //
 // NOTE: This method is part of the Address interface.
 func (a *AddressMweb) EncodeAddress() string {
-	var buf bytes.Buffer
-	buf.Write(a.sa.Scan[:])
-	buf.Write(a.sa.Spend[:])
-
-	converted, err := bech32.ConvertBits(buf.Bytes(), 8, 5, true)
+	converted, err := bech32.ConvertBits(a.ScriptAddress(), 8, 5, true)
 	if err != nil {
 		return ""
 	}
@@ -751,7 +743,7 @@ func (a *AddressMweb) EncodeAddress() string {
 //
 // NOTE: This method is part of the Address interface.
 func (a *AddressMweb) ScriptAddress() []byte {
-	return nil
+	return append(a.sa.Scan[:], a.sa.Spend[:]...)
 }
 
 // IsForNet returns whether the AddressMweb is associated with the passed
