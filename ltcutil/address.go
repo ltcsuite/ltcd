@@ -185,6 +185,12 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 					return nil, UnsupportedWitnessProgLenError(len(witnessProg))
 				}
 			}
+		} else if chaincfg.IsBech32MwebPrefix(prefix) {
+			sa, err := decodeMwebAddress(addr)
+			if err == nil {
+				hrp := prefix[:len(prefix)-1]
+				return newAddressMweb(hrp, sa), nil
+			}
 		}
 	}
 
@@ -279,6 +285,46 @@ func decodeSegWitAddress(address string) (byte, []byte, error) {
 	}
 
 	return version, regrouped, nil
+}
+
+// decodeMwebAddress parses a bech32 encoded MWEB address string and
+// returns the stealth address representation.
+func decodeMwebAddress(address string) (*mw.StealthAddress, error) {
+	// Decode the bech32 encoded address.
+	_, data, err := bech32.Decode(address)
+	if err != nil {
+		return nil, err
+	}
+
+	// The first byte of the decoded address is the version byte, it must
+	// exist.
+	if len(data) < 1 {
+		return nil, fmt.Errorf("no version byte")
+	}
+
+	// ...and be == 0.
+	version := data[0]
+	if version != 0 {
+		return nil, fmt.Errorf("invalid version byte: %v", version)
+	}
+
+	// The remaining characters of the address returned are grouped into
+	// words of 5 bits. In order to restore the original bytes, we'll
+	// need to regroup into 8 bit words.
+	regrouped, err := bech32.ConvertBits(data[1:], 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Address MUST be exactly 66 bytes.
+	if len(regrouped) != 66 {
+		return nil, fmt.Errorf("invalid data length")
+	}
+
+	return &mw.StealthAddress{
+		Scan:  (*mw.PublicKey)(regrouped[:33]),
+		Spend: (*mw.PublicKey)(regrouped[33:]),
+	}, nil
 }
 
 // AddressPubKeyHash is an Address for a pay-to-pubkey-hash (P2PKH)
@@ -721,8 +767,12 @@ type AddressMweb struct {
 
 // NewAddressMweb returns a new AddressMweb.
 func NewAddressMweb(sa *mw.StealthAddress, net *chaincfg.Params) *AddressMweb {
+	return newAddressMweb(net.Bech32HRPMweb, sa)
+}
+
+func newAddressMweb(hrp string, sa *mw.StealthAddress) *AddressMweb {
 	return &AddressMweb{
-		hrp: strings.ToLower(net.Bech32HRPMweb),
+		hrp: strings.ToLower(hrp),
 		sa:  sa,
 	}
 }

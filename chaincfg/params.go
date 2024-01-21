@@ -907,6 +907,7 @@ var (
 	pubKeyHashAddrIDs    = make(map[byte]struct{})
 	scriptHashAddrIDs    = make(map[byte]struct{})
 	bech32SegwitPrefixes = make(map[string]struct{})
+	bech32MwebPrefixes   = make(map[string]struct{})
 	hdPrivToPubKeyIDs    = make(map[[4]byte][]byte)
 )
 
@@ -940,6 +941,11 @@ func Register(params *Params) error {
 	// A valid Bech32 encoded segwit address always has as prefix the
 	// human-readable part for the given net followed by '1'.
 	bech32SegwitPrefixes[params.Bech32HRPSegwit+"1"] = struct{}{}
+
+	// A valid Bech32 encoded MWEB address always has as prefix the
+	// human-readable part for the given net followed by '1'.
+	bech32MwebPrefixes[params.Bech32HRPMweb+"1"] = struct{}{}
+
 	return nil
 }
 
@@ -979,6 +985,15 @@ func IsScriptHashAddrID(id byte) bool {
 func IsBech32SegwitPrefix(prefix string) bool {
 	prefix = strings.ToLower(prefix)
 	_, ok := bech32SegwitPrefixes[prefix]
+	return ok
+}
+
+// IsBech32MwebPrefix returns whether the prefix is a known prefix for MWEB
+// addresses on any default or registered network.  This is used when decoding
+// an address string into a specific address type.
+func IsBech32MwebPrefix(prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	_, ok := bech32MwebPrefixes[prefix]
 	return ok
 }
 
