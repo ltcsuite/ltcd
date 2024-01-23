@@ -88,9 +88,11 @@ func (msg *MsgGetMwebUtxos) MaxPayloadLength(pver uint32) uint32 {
 
 // NewMsgGetMwebUtxos returns a new litecoin getmwebutxos message that conforms to
 // the Message interface.  See MsgGetMwebUtxos for details.
-func NewMsgGetMwebUtxos(blockHash *chainhash.Hash, startIndex uint64, numRequested uint16, outputFormat MwebNetUtxoType) *MsgGetMwebUtxos {
+func NewMsgGetMwebUtxos(blockHash chainhash.Hash, startIndex uint64,
+	numRequested uint16, outputFormat MwebNetUtxoType) *MsgGetMwebUtxos {
+
 	return &MsgGetMwebUtxos{
-		BlockHash:    *blockHash,
+		BlockHash:    blockHash,
 		StartIndex:   startIndex,
 		NumRequested: numRequested,
 		OutputFormat: outputFormat,
