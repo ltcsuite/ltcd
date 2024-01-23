@@ -7,8 +7,10 @@ package txscript
 import (
 	"fmt"
 
+	"github.com/ltcsuite/ltcd/btcec/v2"
 	"github.com/ltcsuite/ltcd/chaincfg"
 	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
 )
 
@@ -64,6 +66,7 @@ const (
 	NullDataTy                               // Empty data-only (provably prunable).
 	WitnessV1TaprootTy                       // Taproot output
 	WitnessUnknownTy                         // Witness unknown
+	MwebTy                                   // MWEB address
 )
 
 // scriptClassToName houses the human-readable strings which describe each
@@ -79,6 +82,7 @@ var scriptClassToName = []string{
 	NullDataTy:            "nulldata",
 	WitnessV1TaprootTy:    "witness_v1_taproot",
 	WitnessUnknownTy:      "witness_unknown",
+	MwebTy:                "mweb",
 }
 
 // String implements the Stringer interface by returning the name of
@@ -147,6 +151,28 @@ func extractPubKey(script []byte) []byte {
 // script.
 func isPubKeyScript(script []byte) bool {
 	return extractPubKey(script) != nil
+}
+
+func extractMweb(script []byte) *mw.StealthAddress {
+	if len(script) == 66 {
+		pk1 := script[:33]
+		pk2 := script[33:]
+		if _, err := btcec.ParsePubKey(pk1); err != nil {
+			return nil
+		}
+		if _, err := btcec.ParsePubKey(pk2); err != nil {
+			return nil
+		}
+		return &mw.StealthAddress{
+			Scan:  (*mw.PublicKey)(pk1),
+			Spend: (*mw.PublicKey)(pk2),
+		}
+	}
+	return nil
+}
+
+func isMwebScript(script []byte) bool {
+	return extractMweb(script) != nil
 }
 
 // extractPubKeyHash extracts the public key hash from the passed script if it
@@ -1041,6 +1067,11 @@ func ExtractPkScriptAddrs(pkScript []byte,
 			addrs = append(addrs, addr)
 		}
 		return WitnessV1TaprootTy, addrs, 1, nil
+	}
+
+	if sa := extractMweb(pkScript); sa != nil {
+		addr := ltcutil.NewAddressMweb(sa, chainParams)
+		return MwebTy, []ltcutil.Address{addr}, 1, nil
 	}
 
 	// If none of the above passed, then the address must be non-standard.
