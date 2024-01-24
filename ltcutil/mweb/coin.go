@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
 	"lukechampine.com/blake3"
@@ -28,7 +27,7 @@ type Coin struct {
 	// The output amount in litoshis.
 	// Typically positive, but could be 0 in the future
 	// when we start using decoys to improve privacy.
-	Value ltcutil.Amount
+	Value uint64
 
 	// The output's ID (hash).
 	OutputId *chainhash.Hash
@@ -89,7 +88,7 @@ func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, err
 
 	return &Coin{
 		Blind:        mask.Blind,
-		Value:        ltcutil.Amount(value),
+		Value:        value,
 		OutputId:     output.Hash(),
 		Address:      address,
 		SharedSecret: t,

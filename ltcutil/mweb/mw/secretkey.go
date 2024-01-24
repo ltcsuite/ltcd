@@ -13,11 +13,12 @@ func (s *SecretKey) scalar() *secp256k1.ModNScalar {
 }
 
 func (s *SecretKey) Add(sk *SecretKey) *SecretKey {
-	k := s.scalar()
-	if k.IsZero() {
-		return s
-	}
-	r := SecretKey(k.Add(sk.scalar()).Bytes())
+	r := SecretKey(s.scalar().Add(sk.scalar()).Bytes())
+	return &r
+}
+
+func (s *SecretKey) Sub(sk *SecretKey) *SecretKey {
+	r := SecretKey(s.scalar().Add(sk.scalar().Negate()).Bytes())
 	return &r
 }
 
