@@ -69,7 +69,7 @@ func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, err
 	value := mask.MaskValue(output.Message.MaskedValue)
 	n := mask.MaskNonce(&output.Message.MaskedNonce)
 
-	if *mask.SwitchCommit(value) != output.Commitment {
+	if *mw.SwitchCommit(mask.Blind, value) != output.Commitment {
 		return nil, errors.New("commitment mismatch")
 	}
 

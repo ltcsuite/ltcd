@@ -32,7 +32,3 @@ func (om *OutputMask) MaskValue(value uint64) uint64 {
 func (om *OutputMask) MaskNonce(nonce *big.Int) *big.Int {
 	return new(big.Int).Xor(nonce, &om.nonceMask)
 }
-
-func (om *OutputMask) SwitchCommit(value uint64) *Commitment {
-	return SwitchCommit(om.Blind, value)
-}

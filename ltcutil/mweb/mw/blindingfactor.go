@@ -33,6 +33,5 @@ func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	h := sha256.New()
 	h.Write(NewCommitment(blind, value)[:])
 	h.Write(generatorJ.mul(blind.scalar())[:])
-	blindSwitch := (*BlindingFactor)(h.Sum(nil))
-	return blindSwitch.Add(blind)
+	return (*BlindingFactor)(h.Sum(nil)).Add(blind)
 }

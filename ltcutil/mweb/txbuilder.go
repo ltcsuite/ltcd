@@ -3,6 +3,7 @@ package mweb
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"math/big"
 
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
@@ -61,4 +62,110 @@ func createInput(coin *Coin, commitment *mw.Commitment,
 		OutputPubKey: *outputPubKey,
 		Signature:    mw.Sign(sigKey, msgHash),
 	}
+}
+
+type Recipient struct {
+	Value   uint64
+	Address *mw.StealthAddress
+}
+
+func CreateOutputs(recipients []*Recipient) ([]*wire.MwebOutput, []*Coin) {
+	var (
+		outputs      []*wire.MwebOutput
+		coins        []*Coin
+		totalBlind   = &mw.BlindingFactor{}
+		totalKey     = &mw.SecretKey{}
+		ephemeralKey = &mw.SecretKey{}
+	)
+	for _, recipient := range recipients {
+		if _, err := rand.Read(ephemeralKey[:]); err != nil {
+			return nil, nil
+		}
+		output, blind := createOutput(recipient, ephemeralKey)
+		totalBlind = totalBlind.Add(mw.BlindSwitch(blind, recipient.Value))
+		totalKey = totalKey.Add(ephemeralKey)
+		outputs = append(outputs, output)
+
+		coins = append(coins, &Coin{
+			Blind:     blind,
+			Value:     recipient.Value,
+			OutputId:  output.Hash(),
+			SenderKey: ephemeralKey,
+			Address:   recipient.Address,
+		})
+	}
+	return outputs, coins
+}
+
+func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
+	*wire.MwebOutput, *mw.BlindingFactor) {
+
+	// We only support standard feature fields for now
+	features := wire.MwebOutputMessageStandardFieldsFeatureBit
+
+	// Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
+	n := new(big.Int).SetBytes(mw.Hashed(mw.HashTagNonce, senderKey[:])[:16])
+
+	// Calculate unique sending key 's' = H(T_send, A, B, v, n)
+	h := blake3.New(32, nil)
+	binary.Write(h, binary.LittleEndian, mw.HashTagSendKey)
+	h.Write(recipient.Address.A()[:])
+	h.Write(recipient.Address.B()[:])
+	binary.Write(h, binary.LittleEndian, recipient.Value)
+	h.Write(n.FillBytes(make([]byte, 16)))
+	s := (*mw.SecretKey)(h.Sum(nil))
+
+	// Derive shared secret 't' = H(T_derive, s*A)
+	sA := recipient.Address.A().Mul(s)
+	t := (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sA[:]))
+
+	// Construct one-time public key for receiver 'Ko' = H(T_outkey, t)*B
+	Ko := recipient.Address.B().Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, t[:])))
+
+	// Key exchange public key 'Ke' = s*B
+	Ke := recipient.Address.B().Mul(s)
+
+	// Calc blinding factor and mask nonce and amount
+	mask := mw.OutputMaskFromShared(t)
+	blind := mw.BlindSwitch(mask.Blind, recipient.Value)
+	mv := mask.MaskValue(recipient.Value)
+	mn := mask.MaskNonce(n)
+
+	// Commitment 'C' = r*G + v*H
+	outputCommit := mw.NewCommitment(blind, recipient.Value)
+
+	// Calculate the ephemeral send pubkey 'Ks' = ks*G
+	Ks := senderKey.PubKey()
+
+	// Derive view tag as first byte of H(T_tag, sA)
+	viewTag := mw.Hashed(mw.HashTagTag, sA[:])[0]
+
+	message := &wire.MwebOutputMessage{
+		Features:          features,
+		KeyExchangePubKey: *Ke,
+		ViewTag:           viewTag,
+		MaskedValue:       mv,
+		MaskedNonce:       *mn,
+	}
+
+	// Probably best to store sender_key so sender can identify all outputs they've sent?
+
+	// Sign the output
+	h = blake3.New(32, nil)
+	h.Write(outputCommit[:])
+	h.Write(Ks[:])
+	h.Write(Ko[:])
+	h.Write(message.Hash()[:])
+	//h.Write(rangeProof.Hash())
+	signature := mw.Sign(senderKey, h.Sum(nil))
+
+	return &wire.MwebOutput{
+		Commitment:     *outputCommit,
+		SenderPubKey:   *Ks,
+		ReceiverPubKey: *Ko,
+		Message:        *message,
+		//RangeProof: rangeProof,
+		//RangeProofHash: rangeProof.Hash(),
+		Signature: signature,
+	}, mask.Blind
 }
