@@ -20,21 +20,17 @@ func generatorH() *secp256k1.JacobianPoint {
 		0xc3, 0x0c, 0x23, 0x13, 0xf3, 0xa3, 0x89, 0x04,
 	}
 	var H secp256k1.JacobianPoint
-	H.X.SetBytes((*[32]byte)(generatorH[:32]))
-	H.Y.SetBytes((*[32]byte)(generatorH[32:]))
+	H.X.SetByteSlice(generatorH[:32])
+	H.Y.SetByteSlice(generatorH[32:])
 	H.Z.SetInt(1)
 	return &H
 }
 
 func newCommitment(blind *BlindingFactor, value uint64) *secp256k1.JacobianPoint {
-	var bs, vs secp256k1.ModNScalar
-	if bs.SetBytes((*[32]byte)(blind)) > 0 {
-		panic("overflowed")
-	}
-	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
-
+	var vs secp256k1.ModNScalar
 	var bj, rj secp256k1.JacobianPoint
-	secp256k1.ScalarBaseMultNonConst(&bs, &bj)
+	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
+	secp256k1.ScalarBaseMultNonConst(blind.scalar(), &bj)
 	secp256k1.ScalarMultNonConst(&vs, generatorH(), &rj)
 	secp256k1.AddNonConst(&bj, &rj, &rj)
 	rj.ToAffine()

@@ -17,10 +17,10 @@ func Sign(key *SecretKey, message []byte) (sig Signature) {
 	var r secp256k1.JacobianPoint
 	secp256k1.ScalarBaseMultNonConst(k, &r)
 	r.ToAffine()
-	if !new(secp256k1.FieldVal).SquareRootVal(&r.Y) {
+	r.X.PutBytesUnchecked(sig[:])
+	if !r.X.SquareRootVal(&r.Y) {
 		k.Negate()
 	}
-	r.X.PutBytesUnchecked(sig[:32])
 
 	h = sha256.New()
 	h.Write(sig[:32])

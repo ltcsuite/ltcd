@@ -83,14 +83,16 @@ func (generator *lrGenerator) generate(x *secp256k1.ModNScalar) (
 	return
 }
 
-func NewRangeProof(value uint64, blind *BlindingFactor, message []byte) *RangeProof {
+func NewRangeProof(value uint64, blind *BlindingFactor,
+	message, extraData []byte) *RangeProof {
+
 	// Commit to all input data: pedersen commit, asset generator, extra_commit
 	var commitHash [32]byte
 	commit := newCommitment(blind, value)
 	updateCommitHash(&commitHash, commit, generatorH())
 	h := sha256.New()
 	h.Write(commitHash[:])
-	h.Write(message)
+	h.Write(extraData)
 	h.Sum(commitHash[:0])
 
 	var nonce, privateNonce SecretKey
@@ -230,6 +232,59 @@ func NewRangeProof(value uint64, blind *BlindingFactor, message []byte) *RangePr
 	h.Sum(commitHash[:0])
 
 	// Compute l and r, do inner product proof
+	lrGen = &lrGenerator{nonce: &nonce, y: y, z: z, val: value}
+	lrGen.yn.SetInt(1)
+	y.InverseNonConst()
+	var cache secp256k1.ModNScalar
+	proveInnerProduct(proof[193:], commitHash[:], func(sc *secp256k1.ModNScalar, i int) {
+		if i%2 == 0 {
+			*sc, cache = lrGen.generate(&x)
+		} else {
+			*sc = cache
+		}
+	})
 
 	return proof
+}
+
+func proveInnerProduct(proof, commitHash []byte, cb func(*secp256k1.ModNScalar, int)) {
+	var (
+		aArr, bArr [64]secp256k1.ModNScalar
+		genG, genH [64]*secp256k1.JacobianPoint
+		dot, term  secp256k1.ModNScalar
+	)
+	for i := 0; i < 64; i++ {
+		cb(&aArr[i], 2*i)
+		cb(&bArr[i], 2*i+1)
+		genG[i] = rangeProofGenerators[i]
+		genH[i] = rangeProofGenerators[i+128]
+		dot.Add(term.Mul2(&aArr[i], &bArr[i]))
+	}
+
+	// Record final dot product
+	dot.PutBytesUnchecked(proof)
+
+	// Protocol 2: hash dot product to obtain G-randomizer
+	h := sha256.New()
+	h.Write(commitHash)
+	h.Write(proof[:32])
+	h.Sum(commitHash[:0])
+
+	proof = proof[32:]
+
+	var ux secp256k1.ModNScalar
+	ux.SetByteSlice(commitHash)
+
+	// Final a/b values
+	for i := 0; i < 2; i++ {
+		aArr[i].PutBytesUnchecked(proof[32*i:])
+		bArr[i].PutBytesUnchecked(proof[32*(i+2):])
+	}
+	proof = proof[128:]
+	for i, pt := range outPt {
+		pt.X.PutBytesUnchecked(proof[1+i*32:])
+		if !pt.X.SquareRootVal(&pt.Y) {
+			proof[0] |= 1 << i
+		}
+	}
 }

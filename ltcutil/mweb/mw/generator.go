@@ -103,9 +103,8 @@ func shallueVanDeWoestijne(t *secp256k1.FieldVal) (ge secp256k1.JacobianPoint) {
 	ge.Y = y1
 	ge.Z.SetInt(1)
 
-	tmp.NegateVal(&ge.Y, 1)
 	if t.IsOdd() {
-		ge.Y = tmp
+		ge.Y.Negate(1)
 	}
 	return
 }
