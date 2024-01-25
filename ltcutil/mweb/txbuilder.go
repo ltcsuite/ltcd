@@ -149,6 +149,11 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	}
 
 	// Probably best to store sender_key so sender can identify all outputs they've sent?
+	rangeProof := mw.NewRangeProof(recipient.Value, blind, message)
+	if rangeProof == nil {
+		panic("rangeproof failed")
+	}
+	rangeProofHash := blake3.Sum256(rangeProof[:])
 
 	// Sign the output
 	h = blake3.New(32, nil)
@@ -156,7 +161,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	h.Write(Ks[:])
 	h.Write(Ko[:])
 	h.Write(message.Hash()[:])
-	//h.Write(rangeProof.Hash())
+	h.Write(rangeProofHash[:])
 	signature := mw.Sign(senderKey, h.Sum(nil))
 
 	return &wire.MwebOutput{
@@ -164,8 +169,8 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		SenderPubKey:   *Ks,
 		ReceiverPubKey: *Ko,
 		Message:        *message,
-		//RangeProof: rangeProof,
-		//RangeProofHash: rangeProof.Hash(),
-		Signature: signature,
+		RangeProof:     *rangeProof,
+		RangeProofHash: rangeProofHash,
+		Signature:      signature,
 	}, mask.Blind
 }

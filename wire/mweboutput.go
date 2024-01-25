@@ -33,7 +33,7 @@ type (
 		SenderPubKey   mw.PublicKey
 		ReceiverPubKey mw.PublicKey
 		Message        MwebOutputMessage
-		RangeProof     [675]byte
+		RangeProof     mw.RangeProof
 		RangeProofHash chainhash.Hash
 		Signature      mw.Signature
 	}
