@@ -49,7 +49,9 @@ func SwitchCommit(blind *BlindingFactor, value uint64) *Commitment {
 func (c *Commitment) PubKey() *PublicKey {
 	var Q secp256k1.JacobianPoint
 	var t secp256k1.FieldVal
-	Q.X.SetByteSlice(c[1:])
+	if Q.X.SetByteSlice(c[1:]) {
+		panic("overflowed")
+	}
 	if !Q.Y.SquareRootVal(t.SquareVal(&Q.X).Mul(&Q.X).AddInt(7)) {
 		panic("invalid commitment")
 	}
