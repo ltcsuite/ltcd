@@ -41,7 +41,13 @@ type (
 
 func (mk *MwebKernel) Hash() *chainhash.Hash {
 	h := blake3.New(32, nil)
-	mk.write(h, 0)
+	mk.write(h, 0, false)
+	return (*chainhash.Hash)(h.Sum(nil))
+}
+
+func (mk *MwebKernel) MessageHash() *chainhash.Hash {
+	h := blake3.New(32, nil)
+	mk.write(h, 0, true)
 	return (*chainhash.Hash)(h.Sum(nil))
 }
 
@@ -109,10 +115,16 @@ func (mk *MwebKernel) read(r io.Reader, pver uint32) error {
 // Writes a litecoin mweb kernel to w.  See Serialize for
 // encoding mweb kernels to be stored to disk, such as in
 // a database, as opposed to encoding for the wire.
-func (mk *MwebKernel) write(w io.Writer, pver uint32) error {
+func (mk *MwebKernel) write(w io.Writer, pver uint32, message bool) error {
 	err := writeElements(w, mk.Features)
 	if err != nil {
 		return err
+	}
+
+	if message {
+		if _, err = w.Write(mk.Excess[:]); err != nil {
+			return err
+		}
 	}
 
 	if mk.Features&MwebKernelFeeFeatureBit > 0 {
@@ -154,6 +166,10 @@ func (mk *MwebKernel) write(w io.Writer, pver uint32) error {
 		if err = WriteVarBytes(w, pver, mk.ExtraData); err != nil {
 			return err
 		}
+	}
+
+	if message {
+		return nil
 	}
 
 	return writeElements(w, mk.Excess[:], mk.Signature[:])

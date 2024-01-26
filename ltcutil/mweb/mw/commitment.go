@@ -45,3 +45,14 @@ func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 func SwitchCommit(blind *BlindingFactor, value uint64) *Commitment {
 	return NewCommitment(BlindSwitch(blind, value), value)
 }
+
+func (c *Commitment) PubKey() *PublicKey {
+	var Q secp256k1.JacobianPoint
+	Q.X.SetByteSlice(c[1:])
+	Q.Y.SquareVal(&Q.X).Mul(&Q.X).AddInt(7)
+	Q.Y.SquareRootVal(&Q.Y)
+	if c[0]&1 > 0 {
+		Q.Y.Negate(1)
+	}
+	return toPubKey(&Q)
+}

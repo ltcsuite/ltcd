@@ -176,3 +176,42 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		Signature:      signature,
 	}, mask.Blind
 }
+
+func createKernel(blind, stealthBlind *mw.BlindingFactor,
+	fee, pegin *uint64, pegouts []wire.TxOut,
+	lockHeight *int32) *wire.MwebKernel {
+
+	k := &wire.MwebKernel{Excess: *mw.NewCommitment(blind, 0)}
+	sigKey := (*mw.SecretKey)(blind)
+
+	if fee != nil {
+		k.Features |= wire.MwebKernelFeeFeatureBit
+		k.Fee = *fee
+	}
+	if pegin != nil {
+		k.Features |= wire.MwebKernelPeginFeatureBit
+		k.Pegin = *pegin
+	}
+	if len(pegouts) > 0 {
+		k.Features |= wire.MwebKernelPegoutFeatureBit
+		k.Pegouts = pegouts
+	}
+	if lockHeight != nil {
+		k.Features |= wire.MwebKernelHeightLockFeatureBit
+		k.LockHeight = *lockHeight
+	}
+	if stealthBlind != nil {
+		k.Features |= wire.MwebKernelStealthExcessFeatureBit
+		k.StealthExcess = *(*mw.SecretKey)(stealthBlind).PubKey()
+
+		h := blake3.New(32, nil)
+		h.Write(k.Excess.PubKey()[:])
+		h.Write(k.StealthExcess[:])
+
+		sigKey = sigKey.Mul((*mw.SecretKey)(h.Sum(nil))).
+			Add((*mw.SecretKey)(stealthBlind))
+	}
+
+	k.Signature = mw.Sign(sigKey, k.MessageHash()[:])
+	return k
+}
