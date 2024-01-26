@@ -54,5 +54,6 @@ func (c *Commitment) PubKey() *PublicKey {
 	if c[0]&1 > 0 {
 		Q.Y.Negate(1)
 	}
+	Q.Z.SetInt(1)
 	return toPubKey(&Q)
 }
