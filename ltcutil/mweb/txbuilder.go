@@ -1,6 +1,7 @@
 package mweb
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"math/big"
@@ -147,12 +148,13 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		MaskedValue:       mv,
 		MaskedNonce:       *mn,
 	}
+	var messageBuf bytes.Buffer
+	message.Serialize(&messageBuf)
 
-	// Probably best to store sender_key so sender can identify all outputs they've sent?
-	rangeProof := mw.NewRangeProof(recipient.Value, blind, message)
-	if rangeProof == nil {
-		panic("rangeproof failed")
-	}
+	// Probably best to store sender_key so sender
+	// can identify all outputs they've sent?
+	rangeProof := mw.NewRangeProof(recipient.Value,
+		blind, make([]byte, 20), messageBuf.Bytes())
 	rangeProofHash := blake3.Sum256(rangeProof[:])
 
 	// Sign the output
@@ -169,7 +171,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		SenderPubKey:   *Ks,
 		ReceiverPubKey: *Ko,
 		Message:        *message,
-		RangeProof:     *rangeProof,
+		RangeProof:     rangeProof,
 		RangeProofHash: rangeProofHash,
 		Signature:      signature,
 	}, mask.Blind

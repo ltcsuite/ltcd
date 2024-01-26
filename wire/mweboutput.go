@@ -116,6 +116,14 @@ func (om *MwebOutputMessage) write(w io.Writer, pver uint32) error {
 	return err
 }
 
+func (om *MwebOutputMessage) Serialize(w io.Writer) error {
+	return om.write(w, 0)
+}
+
+func (om *MwebOutputMessage) Deserialize(r io.Reader) error {
+	return om.read(r, 0)
+}
+
 // Reads a litecoin mweb output from r.  See Deserialize for
 // decoding mweb outputs stored to disk, such as in a database,
 // as opposed to decoding from the wire.

@@ -26,7 +26,7 @@ func generatorH() *secp256k1.JacobianPoint {
 	return &H
 }
 
-func newCommitment(blind *BlindingFactor, value uint64) *secp256k1.JacobianPoint {
+func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 	var vs secp256k1.ModNScalar
 	var bj, rj secp256k1.JacobianPoint
 	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
@@ -34,11 +34,6 @@ func newCommitment(blind *BlindingFactor, value uint64) *secp256k1.JacobianPoint
 	secp256k1.ScalarMultNonConst(&vs, generatorH(), &rj)
 	secp256k1.AddNonConst(&bj, &rj, &rj)
 	rj.ToAffine()
-	return &rj
-}
-
-func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
-	rj := newCommitment(blind, value)
 	c := &Commitment{8}
 	rj.X.PutBytesUnchecked(c[1:])
 	if !rj.X.SquareRootVal(&rj.Y) {
