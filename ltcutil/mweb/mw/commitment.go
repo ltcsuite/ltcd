@@ -48,9 +48,11 @@ func SwitchCommit(blind *BlindingFactor, value uint64) *Commitment {
 
 func (c *Commitment) PubKey() *PublicKey {
 	var Q secp256k1.JacobianPoint
+	var t secp256k1.FieldVal
 	Q.X.SetByteSlice(c[1:])
-	Q.Y.SquareVal(&Q.X).Mul(&Q.X).AddInt(7)
-	Q.Y.SquareRootVal(&Q.Y)
+	if !Q.Y.SquareRootVal(t.SquareVal(&Q.X).Mul(&Q.X).AddInt(7)) {
+		panic("invalid commitment")
+	}
 	if c[0]&1 > 0 {
 		Q.Y.Negate(1)
 	}

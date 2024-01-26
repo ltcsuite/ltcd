@@ -47,7 +47,15 @@ type Coin struct {
 	SharedSecret *mw.SecretKey
 }
 
-func RewindOutput(output *wire.MwebOutput, scanSecret *mw.SecretKey) (*Coin, error) {
+func RewindOutput(output *wire.MwebOutput,
+	scanSecret *mw.SecretKey) (coin *Coin, err error) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New("output is bad")
+		}
+	}()
+
 	if output.Message.Features&wire.MwebOutputMessageStandardFieldsFeatureBit == 0 {
 		return nil, errors.New("output doesn't have standard fields")
 	}
