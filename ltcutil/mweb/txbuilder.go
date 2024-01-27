@@ -13,22 +13,8 @@ import (
 	"lukechampine.com/blake3"
 )
 
-type (
-	MwebTxBody struct {
-		Inputs  []*wire.MwebInput
-		Outputs []*wire.MwebOutput
-		Kernels []*wire.MwebKernel
-	}
-
-	MwebTx struct {
-		KernelOffset  mw.BlindingFactor
-		StealthOffset mw.BlindingFactor
-		TxBody        *MwebTxBody
-	}
-)
-
 func NewTransaction(coins []*Coin, recipients []*Recipient,
-	fee, pegin uint64, pegouts []*wire.TxOut) (tx *MwebTx, err error) {
+	fee, pegin uint64, pegouts []*wire.TxOut) (tx *wire.MwebTx, err error) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -71,10 +57,10 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	kernel := createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
 	stealthOffset := (*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
 
-	return &MwebTx{
+	return &wire.MwebTx{
 		KernelOffset:  kernelOffset,
 		StealthOffset: *stealthOffset,
-		TxBody: &MwebTxBody{
+		TxBody: &wire.MwebTxBody{
 			Inputs:  inputs,
 			Outputs: outputs,
 			Kernels: []*wire.MwebKernel{kernel},
