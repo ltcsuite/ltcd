@@ -30,7 +30,7 @@ type (
 		Features      MwebKernelFeatureBit
 		Fee           uint64
 		Pegin         uint64
-		Pegouts       []TxOut
+		Pegouts       []*TxOut
 		LockHeight    int32
 		StealthExcess mw.PublicKey
 		ExtraData     []byte
@@ -80,9 +80,10 @@ func (mk *MwebKernel) read(r io.Reader, pver uint32) error {
 		if count > maxTxOutPerMessage {
 			return errors.New("count too large")
 		}
-		mk.Pegouts = make([]TxOut, count)
+		mk.Pegouts = make([]*TxOut, count)
 		for i := range mk.Pegouts {
-			if err = ReadTxOut(r, pver, 0, &mk.Pegouts[i]); err != nil {
+			mk.Pegouts[i] = &TxOut{}
+			if err = ReadTxOut(r, pver, 0, mk.Pegouts[i]); err != nil {
 				return err
 			}
 		}
@@ -144,7 +145,7 @@ func (mk *MwebKernel) write(w io.Writer, pver uint32, message bool) error {
 			return err
 		}
 		for i := range mk.Pegouts {
-			if err = WriteTxOut(w, pver, 0, &mk.Pegouts[i]); err != nil {
+			if err = WriteTxOut(w, pver, 0, mk.Pegouts[i]); err != nil {
 				return err
 			}
 		}

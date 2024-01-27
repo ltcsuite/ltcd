@@ -4,32 +4,107 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"math/big"
+	"sort"
 
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
 	"lukechampine.com/blake3"
 )
 
-func CreateInputs(coins []*Coin) []*wire.MwebInput {
-	var (
-		inputs       []*wire.MwebInput
-		totalBlind   = &mw.BlindingFactor{}
-		totalKey     = &mw.SecretKey{}
-		ephemeralKey = &mw.SecretKey{}
-	)
+type (
+	MwebTxBody struct {
+		Inputs  []*wire.MwebInput
+		Outputs []*wire.MwebOutput
+		Kernels []*wire.MwebKernel
+	}
+
+	MwebTx struct {
+		KernelOffset  mw.BlindingFactor
+		StealthOffset mw.BlindingFactor
+		TxBody        *MwebTxBody
+	}
+)
+
+func NewTransaction(coins []*Coin, recipients []*Recipient,
+	fee, pegin uint64, pegouts []*wire.TxOut) (tx *MwebTx, err error) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New("input coins are bad")
+		}
+	}()
+
+	var sumCoins, sumRecipients, sumPegouts uint64
+	for _, coin := range coins {
+		sumCoins += coin.Value
+	}
+	for _, recipient := range recipients {
+		sumRecipients += recipient.Value
+	}
+	for _, pegout := range pegouts {
+		sumPegouts += uint64(pegout.Value)
+	}
+	if sumCoins+pegin != sumRecipients+sumPegouts+fee {
+		return nil, errors.New("total amount mismatch")
+	}
+
+	inputs, inputBlind, inputKey := createInputs(coins)
+	outputs, _, outputBlind, outputKey := createOutputs(recipients)
+
+	// Total kernel offset is split between raw kernel_offset
+	// and the kernel's blinding factor.
+	// sum(output.blind) - sum(input.blind) = kernel_offset + sum(kernel.blind)
+	var kernelOffset mw.BlindingFactor
+	if _, err := rand.Read(kernelOffset[:]); err != nil {
+		return nil, err
+	}
+	kernelBlind := outputBlind.Sub(&inputBlind).Sub(&kernelOffset)
+
+	// MW: FUTURE - This is only needed for peg-ins or when no change
+	var stealthBlind mw.BlindingFactor
+	if _, err := rand.Read(stealthBlind[:]); err != nil {
+		return nil, err
+	}
+
+	kernel := createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
+	stealthOffset := (*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
+
+	return &MwebTx{
+		KernelOffset:  kernelOffset,
+		StealthOffset: *stealthOffset,
+		TxBody: &MwebTxBody{
+			Inputs:  inputs,
+			Outputs: outputs,
+			Kernels: []*wire.MwebKernel{kernel},
+		},
+	}, nil
+}
+
+func createInputs(coins []*Coin) (inputs []*wire.MwebInput,
+	totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
+
+	var ephemeralKey mw.SecretKey
+
 	for _, coin := range coins {
 		if _, err := rand.Read(ephemeralKey[:]); err != nil {
-			return nil
+			panic(err)
 		}
 		blind := mw.BlindSwitch(coin.Blind, coin.Value)
 		commitment := mw.NewCommitment(blind, coin.Value)
-		inputs = append(inputs, createInput(coin, commitment, ephemeralKey))
-		totalBlind = totalBlind.Add(blind)
-		totalKey = totalKey.Add(ephemeralKey).Sub(coin.SpendKey)
+		inputs = append(inputs, createInput(coin, commitment, &ephemeralKey))
+		totalBlind = *totalBlind.Add(blind)
+		totalKey = *totalKey.Add(&ephemeralKey).Sub(coin.SpendKey)
 	}
 
-	return inputs
+	sort.Slice(inputs, func(i, j int) bool {
+		a := new(big.Int).SetBytes(inputs[i].OutputId[:])
+		b := new(big.Int).SetBytes(inputs[j].OutputId[:])
+		return a.Cmp(b) < 0
+	})
+
+	return
 }
 
 // Creates a standard input with a stealth key (feature bit = 1)
@@ -70,32 +145,36 @@ type Recipient struct {
 	Address *mw.StealthAddress
 }
 
-func CreateOutputs(recipients []*Recipient) ([]*wire.MwebOutput, []*Coin) {
-	var (
-		outputs      []*wire.MwebOutput
-		coins        []*Coin
-		totalBlind   = &mw.BlindingFactor{}
-		totalKey     = &mw.SecretKey{}
-		ephemeralKey = &mw.SecretKey{}
-	)
+func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
+	coins []*Coin, totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
+
+	var ephemeralKey mw.SecretKey
+
 	for _, recipient := range recipients {
 		if _, err := rand.Read(ephemeralKey[:]); err != nil {
-			return nil, nil
+			panic(err)
 		}
-		output, blind := createOutput(recipient, ephemeralKey)
-		totalBlind = totalBlind.Add(mw.BlindSwitch(blind, recipient.Value))
-		totalKey = totalKey.Add(ephemeralKey)
+		output, blind := createOutput(recipient, &ephemeralKey)
+		totalBlind = *totalBlind.Add(mw.BlindSwitch(blind, recipient.Value))
+		totalKey = *totalKey.Add(&ephemeralKey)
 		outputs = append(outputs, output)
 
 		coins = append(coins, &Coin{
 			Blind:     blind,
 			Value:     recipient.Value,
 			OutputId:  output.Hash(),
-			SenderKey: ephemeralKey,
+			SenderKey: &ephemeralKey,
 			Address:   recipient.Address,
 		})
 	}
-	return outputs, coins
+
+	sort.Slice(outputs, func(i, j int) bool {
+		a := new(big.Int).SetBytes(outputs[i].Hash()[:])
+		b := new(big.Int).SetBytes(outputs[j].Hash()[:])
+		return a.Cmp(b) < 0
+	})
+
+	return
 }
 
 func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
@@ -178,7 +257,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 }
 
 func createKernel(blind, stealthBlind *mw.BlindingFactor,
-	fee, pegin *uint64, pegouts []wire.TxOut,
+	fee, pegin *uint64, pegouts []*wire.TxOut,
 	lockHeight *int32) *wire.MwebKernel {
 
 	k := &wire.MwebKernel{Excess: *mw.NewCommitment(blind, 0)}

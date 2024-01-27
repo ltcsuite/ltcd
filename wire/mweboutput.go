@@ -36,6 +36,8 @@ type (
 		RangeProof     mw.RangeProof
 		RangeProofHash chainhash.Hash
 		Signature      mw.Signature
+
+		hash *chainhash.Hash
 	}
 )
 
@@ -46,9 +48,13 @@ func (om *MwebOutputMessage) Hash() *chainhash.Hash {
 }
 
 func (mo *MwebOutput) Hash() *chainhash.Hash {
+	if mo.hash != nil {
+		return mo.hash
+	}
 	h := blake3.New(32, nil)
 	mo.write(h, 0, true, true)
-	return (*chainhash.Hash)(h.Sum(nil))
+	mo.hash = (*chainhash.Hash)(h.Sum(nil))
+	return mo.hash
 }
 
 // Reads a litecoin mweb output message from r.  See Deserialize for

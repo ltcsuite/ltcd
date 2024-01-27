@@ -29,6 +29,11 @@ func (b *BlindingFactor) Add(blind *BlindingFactor) *BlindingFactor {
 	return &r
 }
 
+func (b *BlindingFactor) Sub(blind *BlindingFactor) *BlindingFactor {
+	r := BlindingFactor(b.scalar().Add(blind.scalar().Negate()).Bytes())
+	return &r
+}
+
 func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	h := sha256.New()
 	h.Write(NewCommitment(blind, value)[:])
