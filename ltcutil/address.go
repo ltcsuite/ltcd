@@ -817,3 +817,8 @@ func (a *AddressMweb) String() string {
 func (a *AddressMweb) Hrp() string {
 	return a.hrp
 }
+
+// StealthAddress returns the stealth address.
+func (a *AddressMweb) StealthAddress() *mw.StealthAddress {
+	return a.sa
+}

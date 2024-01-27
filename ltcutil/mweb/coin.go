@@ -12,9 +12,6 @@ import (
 
 // Represents an output owned by the wallet, or one sent by the wallet.
 type Coin struct {
-	// Index of the subaddress this coin was received at.
-	AddressIndex uint32
-
 	// The private key needed in order to spend the coin.
 	// Will be nil for watch-only wallets.
 	// May be nil for locked wallets. Upon unlock, SpendKey will get populated.

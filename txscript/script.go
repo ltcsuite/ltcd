@@ -524,6 +524,8 @@ func IsUnspendable(pkScript []byte) bool {
 		return true
 	case len(pkScript) > MaxScriptSize:
 		return true
+	case IsMweb(pkScript):
+		return false
 	}
 
 	// The script is unspendable if it is guaranteed to fail at execution.
