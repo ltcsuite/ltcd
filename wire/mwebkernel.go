@@ -55,7 +55,7 @@ func (mk *MwebKernel) MessageHash() *chainhash.Hash {
 // decoding mweb kernels stored to disk, such as in a database,
 // as opposed to decoding from the wire.
 func (mk *MwebKernel) read(r io.Reader, pver uint32) error {
-	err := readElements(r, &mk.Features)
+	err := readElement(r, &mk.Features)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,14 @@ func (mk *MwebKernel) read(r io.Reader, pver uint32) error {
 		mk.Pegouts = make([]*TxOut, count)
 		for i := range mk.Pegouts {
 			mk.Pegouts[i] = &TxOut{}
-			if err = ReadTxOut(r, pver, 0, mk.Pegouts[i]); err != nil {
+			if value, err := readVarInt(r); err == nil {
+				mk.Pegouts[i].Value = int64(value)
+			} else {
+				return err
+			}
+			mk.Pegouts[i].PkScript, err = readScript(r, pver,
+				MaxMessagePayload, "public key script")
+			if err != nil {
 				return err
 			}
 		}
@@ -144,8 +151,11 @@ func (mk *MwebKernel) write(w io.Writer, pver uint32, message bool) error {
 		if err = WriteVarInt(w, pver, uint64(len(mk.Pegouts))); err != nil {
 			return err
 		}
-		for i := range mk.Pegouts {
-			if err = WriteTxOut(w, pver, 0, mk.Pegouts[i]); err != nil {
+		for _, out := range mk.Pegouts {
+			if err = writeVarInt(w, uint64(out.Value)); err != nil {
+				return err
+			}
+			if err = WriteVarBytes(w, pver, out.PkScript); err != nil {
 				return err
 			}
 		}

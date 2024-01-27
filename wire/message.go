@@ -77,11 +77,16 @@ const (
 	// using the default Litecoin wire protocol specification. For transaction
 	// messages, the new encoding format detailed in BIP0144 will be used.
 	WitnessEncoding
+
+	// MwebEncoding encodes all messages other than transaction messages
+	// using the default Litecoin wire protocol specification. For transaction
+	// messages, the new encoding format detailed in LIP0003 will be used.
+	MwebEncoding
 )
 
 // LatestEncoding is the most recently specified encoding for the Litecoin wire
 // protocol.
-var LatestEncoding = WitnessEncoding
+var LatestEncoding = WitnessEncoding | MwebEncoding
 
 // ErrUnknownMessage is the error returned when decoding an unknown message.
 var ErrUnknownMessage = fmt.Errorf("received unknown message")
