@@ -78,7 +78,7 @@ func (mk *MwebKernel) read(r io.Reader, pver uint32) error {
 			return err
 		}
 		if count > maxTxOutPerMessage {
-			return errors.New("count too large")
+			return errors.New("too many pegouts")
 		}
 		mk.Pegouts = make([]*TxOut, count)
 		for i := range mk.Pegouts {

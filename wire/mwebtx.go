@@ -30,8 +30,8 @@ func (tb *MwebTxBody) read(r io.Reader, pver uint32) (err error) {
 	if count, err = ReadVarInt(r, pver); err != nil {
 		return
 	}
-	if count > maxTxOutPerMessage {
-		return errors.New("count too large")
+	if count > maxTxInPerMessage {
+		return errors.New("too many inputs")
 	}
 	tb.Inputs = make([]*MwebInput, count)
 	for i := range tb.Inputs {
@@ -45,7 +45,7 @@ func (tb *MwebTxBody) read(r io.Reader, pver uint32) (err error) {
 		return
 	}
 	if count > maxTxOutPerMessage {
-		return errors.New("count too large")
+		return errors.New("too many outputs")
 	}
 	tb.Outputs = make([]*MwebOutput, count)
 	for i := range tb.Outputs {
@@ -58,8 +58,8 @@ func (tb *MwebTxBody) read(r io.Reader, pver uint32) (err error) {
 	if count, err = ReadVarInt(r, pver); err != nil {
 		return
 	}
-	if count > maxTxOutPerMessage {
-		return errors.New("count too large")
+	if count > maxTxPerBlock {
+		return errors.New("too many kernels")
 	}
 	tb.Kernels = make([]*MwebKernel, count)
 	for i := range tb.Kernels {

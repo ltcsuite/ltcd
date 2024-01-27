@@ -96,6 +96,9 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 			return err
 		}
 		msg.Transactions = append(msg.Transactions, &tx)
+		if tx.IsHogEx && i != txCount-1 {
+			return messageError("MsgBlock.BtcDecode", "HogEx must be the last transaction")
+		}
 		hasHogEx = tx.IsHogEx
 	}
 
@@ -210,26 +213,33 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 		return err
 	}
 
-	for _, tx := range msg.Transactions {
+	var hasHogEx bool
+	for i, tx := range msg.Transactions {
 		err = tx.BtcEncode(w, pver, enc)
 		if err != nil {
 			return err
 		}
+		if tx.IsHogEx && i != len(msg.Transactions)-1 {
+			return messageError("MsgBlock.BtcEncode", "HogEx must be the last transaction")
+		}
+		hasHogEx = tx.IsHogEx
 	}
 
-	if msg.MwebHeader != nil {
+	if hasHogEx {
 		err = writeElement(w, byte(1))
 		if err != nil {
 			return err
 		}
-
+		if msg.MwebHeader == nil {
+			return messageError("MsgBlock.BtcEncode", "missing mweb header")
+		}
 		err = msg.MwebHeader.write(w)
 		if err != nil {
 			return err
 		}
-	}
-
-	if msg.MwebTransactions != nil {
+		if msg.MwebTransactions == nil {
+			return messageError("MsgBlock.BtcEncode", "missing mweb txbody")
+		}
 		err = msg.MwebTransactions.write(w, pver)
 		if err != nil {
 			return err

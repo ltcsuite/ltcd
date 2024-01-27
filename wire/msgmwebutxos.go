@@ -5,11 +5,14 @@
 package wire
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 )
+
+const MaxMwebUtxosPerQuery = 4096
 
 type MwebNetUtxo struct {
 	LeafIndex uint64
@@ -116,6 +119,9 @@ func (msg *MsgMwebUtxos) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 	if err != nil {
 		return err
 	}
+	if count > MaxMwebUtxosPerQuery {
+		return errors.New("count exceeds MaxMwebUtxosPerQuery")
+	}
 	msg.Utxos = make([]*MwebNetUtxo, count)
 
 	for i := range msg.Utxos {
@@ -129,6 +135,9 @@ func (msg *MsgMwebUtxos) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 	count, err = ReadVarInt(r, pver)
 	if err != nil {
 		return err
+	}
+	if count > 1e5 {
+		return errors.New("too many proof hashes")
 	}
 	msg.ProofHashes = make([]*chainhash.Hash, count)
 
