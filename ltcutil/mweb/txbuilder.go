@@ -253,7 +253,7 @@ func createKernel(blind, stealthBlind *mw.BlindingFactor,
 		k.Features |= wire.MwebKernelFeeFeatureBit
 		k.Fee = *fee
 	}
-	if pegin != nil {
+	if pegin != nil && *pegin > 0 {
 		k.Features |= wire.MwebKernelPeginFeatureBit
 		k.Pegin = *pegin
 	}

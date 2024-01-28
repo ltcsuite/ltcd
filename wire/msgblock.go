@@ -266,7 +266,7 @@ func (msg *MsgBlock) Serialize(w io.Writer) error {
 	// Passing WitnessEncoding as the encoding type here indicates that
 	// each of the transactions should be serialized using the witness
 	// serialization structure defined in BIP0141.
-	return msg.BtcEncode(w, 0, WitnessEncoding)
+	return msg.BtcEncode(w, 0, LatestEncoding)
 }
 
 // SerializeNoWitness encodes a block to w using an identical format to
