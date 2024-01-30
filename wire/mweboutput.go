@@ -2,7 +2,6 @@ package wire
 
 import (
 	"bytes"
-	"encoding/binary"
 	"io"
 	"math/big"
 
@@ -33,7 +32,7 @@ type (
 		SenderPubKey   mw.PublicKey
 		ReceiverPubKey mw.PublicKey
 		Message        MwebOutputMessage
-		RangeProof     mw.RangeProof
+		RangeProof     *mw.RangeProof
 		RangeProofHash chainhash.Hash
 		Signature      mw.Signature
 
@@ -154,13 +153,23 @@ func (mo *MwebOutput) read(r io.Reader, pver uint32, compact bool) error {
 		return err
 	}
 
+	err = readElement(r, &mo.RangeProofHash)
+	if err != nil {
+		return err
+	}
+
 	if !compact {
-		if _, err = io.ReadFull(r, mo.RangeProof[:]); err != nil {
+		if bytes.Count(mo.RangeProofHash[:], []byte{0}) == 32 {
+			err = readElement(r, &mo.RangeProofHash)
+		} else {
+			mo.RangeProof = &mw.RangeProof{}
+			copy(mo.RangeProof[:], mo.RangeProofHash[:])
+			_, err = io.ReadFull(r, mo.RangeProof[32:])
+			mo.RangeProofHash = blake3.Sum256(mo.RangeProof[:])
+		}
+		if err != nil {
 			return err
 		}
-		mo.RangeProofHash = blake3.Sum256(mo.RangeProof[:])
-	} else if err = readElement(r, &mo.RangeProofHash); err != nil {
-		return err
 	}
 
 	_, err = io.ReadFull(r, mo.Signature[:])
@@ -198,8 +207,13 @@ func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) err
 
 	if compact || hashing {
 		err = writeElement(w, &mo.RangeProofHash)
-	} else {
+	} else if mo.RangeProof != nil {
 		_, err = w.Write(mo.RangeProof[:])
+	} else {
+		if _, err = w.Write(make([]byte, 32)); err != nil {
+			return err
+		}
+		err = writeElement(w, &mo.RangeProofHash)
 	}
 	if err != nil {
 		return err
@@ -210,17 +224,9 @@ func (mo *MwebOutput) write(w io.Writer, pver uint32, compact, hashing bool) err
 }
 
 func (mo *MwebOutput) Serialize(w io.Writer) error {
-	compact := bytes.Count(mo.RangeProof[:], []byte{0}) == len(mo.RangeProof)
-	if err := binary.Write(w, binary.LittleEndian, compact); err != nil {
-		return err
-	}
-	return mo.write(w, 0, compact, false)
+	return mo.write(w, 0, false, false)
 }
 
 func (mo *MwebOutput) Deserialize(r io.Reader) error {
-	var compact bool
-	if err := binary.Read(r, binary.LittleEndian, &compact); err != nil {
-		return err
-	}
-	return mo.read(r, 0, compact)
+	return mo.read(r, 0, false)
 }

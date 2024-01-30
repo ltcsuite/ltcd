@@ -236,7 +236,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		SenderPubKey:   *Ks,
 		ReceiverPubKey: *Ko,
 		Message:        *message,
-		RangeProof:     rangeProof,
+		RangeProof:     &rangeProof,
 		RangeProofHash: rangeProofHash,
 		Signature:      signature,
 	}, mask.Blind
