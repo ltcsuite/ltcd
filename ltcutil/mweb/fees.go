@@ -23,7 +23,9 @@ const (
 	BytesPerWeight = 42
 )
 
-func EstimateFee(outputs []*wire.TxOut, feeRatePerKb ltcutil.Amount) uint64 {
+func EstimateFee(outputs []*wire.TxOut,
+	feeRatePerKb ltcutil.Amount, includeChange bool) uint64 {
+
 	var weight uint64 = KernelWithStealthWeight
 	var txOutSize int
 
@@ -35,6 +37,10 @@ func EstimateFee(outputs []*wire.TxOut, feeRatePerKb ltcutil.Amount) uint64 {
 				BytesPerWeight - 1) / BytesPerWeight
 			txOutSize += txOut.SerializeSize()
 		}
+	}
+
+	if includeChange {
+		weight += StandardOutputWeight
 	}
 
 	fee := math.Ceil(float64(feeRatePerKb) * float64(txOutSize) / 1000)
