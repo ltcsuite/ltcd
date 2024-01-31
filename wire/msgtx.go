@@ -312,8 +312,9 @@ func (t TxWitness) SerializeSize() int {
 
 // TxOut defines a litecoin transaction output.
 type TxOut struct {
-	Value    int64
-	PkScript []byte
+	Value        int64
+	PkScript     []byte
+	MwebOutputId *chainhash.Hash // memory only
 }
 
 // SerializeSize returns the number of bytes it would take to serialize the
