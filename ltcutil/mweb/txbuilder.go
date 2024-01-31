@@ -14,7 +14,8 @@ import (
 )
 
 func NewTransaction(coins []*Coin, recipients []*Recipient,
-	fee, pegin uint64, pegouts []*wire.TxOut) (tx *wire.MwebTx, err error) {
+	fee, pegin uint64, pegouts []*wire.TxOut) (
+	tx *wire.MwebTx, newCoins []*Coin, err error) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -33,25 +34,25 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		sumPegouts += uint64(pegout.Value)
 	}
 	if sumCoins+pegin != sumRecipients+sumPegouts+fee {
-		return nil, errors.New("total amount mismatch")
+		return nil, nil, errors.New("total amount mismatch")
 	}
 
 	inputs, inputBlind, inputKey := createInputs(coins)
-	outputs, _, outputBlind, outputKey := createOutputs(recipients)
+	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients)
 
 	// Total kernel offset is split between raw kernel_offset
 	// and the kernel's blinding factor.
 	// sum(output.blind) - sum(input.blind) = kernel_offset + sum(kernel.blind)
 	var kernelOffset mw.BlindingFactor
 	if _, err := rand.Read(kernelOffset[:]); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	kernelBlind := outputBlind.Sub(&inputBlind).Sub(&kernelOffset)
 
 	// MW: FUTURE - This is only needed for peg-ins or when no change
 	var stealthBlind mw.BlindingFactor
 	if _, err := rand.Read(stealthBlind[:]); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	kernel := createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
@@ -65,7 +66,7 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 			Outputs: outputs,
 			Kernels: []*wire.MwebKernel{kernel},
 		},
-	}, nil
+	}, newCoins, nil
 }
 
 func createInputs(coins []*Coin) (inputs []*wire.MwebInput,
