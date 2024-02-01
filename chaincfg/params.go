@@ -197,6 +197,10 @@ type Params struct {
 	// coins (coinbase transactions) can be spent.
 	CoinbaseMaturity uint16
 
+	// MwebPegoutMaturity is the number of blocks required before coins
+	// pegged-out from MWEB can be spent.
+	MwebPegoutMaturity uint16
+
 	// SubsidyReductionInterval is the interval of blocks before the subsidy
 	// is reduced.
 	SubsidyReductionInterval int32
@@ -298,6 +302,7 @@ var MainNetParams = Params{
 	BIP0065Height:            918684,
 	BIP0066Height:            811879,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 840000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -427,6 +432,7 @@ var RegressionNetParams = Params{
 	PowLimitBits:             0x207fffff,
 	PoWNoRetargeting:         true,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	BIP0034Height:            100000000, // Not active - Permit ver 1 blocks
 	BIP0065Height:            1351,      // Used by regression tests
 	BIP0066Height:            1251,      // Used by regression tests
@@ -544,6 +550,7 @@ var TestNet4Params = Params{
 	BIP0065Height:            76,
 	BIP0066Height:            76,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 840000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -667,6 +674,7 @@ var SimNetParams = Params{
 	BIP0065Height:            0, // Always active on simnet
 	BIP0066Height:            0, // Always active on simnet
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 210000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -795,6 +803,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		BIP0065Height:            1,
 		BIP0066Height:            1,
 		CoinbaseMaturity:         100,
+		MwebPegoutMaturity:       6,
 		SubsidyReductionInterval: 210000,
 		TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 		TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
