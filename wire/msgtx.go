@@ -354,13 +354,11 @@ func (msg *MsgTx) HogEx() bool {
 	if msg.IsHogEx {
 		return true
 	}
-	if len(msg.TxOut) > 0 {
-		script := msg.TxOut[0].PkScript
-		if len(script) == 34 && script[0] == 0x58 && script[1] == 32 {
-			return true
-		}
+	if len(msg.TxOut) == 0 {
+		return false
 	}
-	return false
+	script := msg.TxOut[0].PkScript
+	return len(script) == 34 && script[0] == 0x58 && script[1] == 32
 }
 
 // AddTxIn adds a transaction input to the message.
