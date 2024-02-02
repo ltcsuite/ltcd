@@ -9,7 +9,6 @@ import (
 	"sort"
 
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
-	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
 	"lukechampine.com/blake3"
 )
@@ -281,10 +280,4 @@ func createKernel(blind, stealthBlind *mw.BlindingFactor,
 
 	k.Signature = mw.Sign(sigKey, k.MessageHash()[:])
 	return k
-}
-
-func PeginScript(kernel *wire.MwebKernel) []byte {
-	script, _ := txscript.NewScriptBuilder().AddOp(txscript.OP_9).
-		AddData(kernel.Hash()[:]).Script()
-	return script
 }
