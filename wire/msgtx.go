@@ -354,9 +354,18 @@ func (msg *MsgTx) HogEx() bool {
 	if msg.IsHogEx {
 		return true
 	}
+	return msg.paysToWitnessProgram(8)
+}
+
+// IsPegIn returns whether this is a MWEB peg-in transaction.
+func (msg *MsgTx) IsPegIn() bool {
+	return msg.paysToWitnessProgram(9)
+}
+
+func (msg *MsgTx) paysToWitnessProgram(version byte) bool {
 	if len(msg.TxOut) > 0 {
 		script := msg.TxOut[0].PkScript
-		if len(script) == 34 && script[0] == 0x58 && script[1] == 32 {
+		if len(script) == 34 && script[0] == 0x50+version && script[1] == 32 {
 			return true
 		}
 	}
