@@ -93,17 +93,22 @@ const (
 
 	// SFNodeMWEB is a flag used to indicate a peer support MWEB blocks
 	SFNodeMWEB = 1 << 24
+
+	// SFNodeMWEBLightClient is a flag used to indicate a peer supports
+	// serving MWEB light client data.
+	SFNodeMWEBLightClient = 1 << 25
 )
 
 // Map of service flags back to their constant names for pretty printing.
 var sfStrings = map[ServiceFlag]string{
-	SFNodeNetwork:        "SFNodeNetwork",
-	SFNodeGetUTXO:        "SFNodeGetUTXO",
-	SFNodeBloom:          "SFNodeBloom",
-	SFNodeWitness:        "SFNodeWitness",
-	SFNodeCF:             "SFNodeCF",
-	SFNodeNetworkLimited: "SFNodeNetworkLimited",
-	SFNodeMWEB:           "SFNodeMWEB",
+	SFNodeNetwork:         "SFNodeNetwork",
+	SFNodeGetUTXO:         "SFNodeGetUTXO",
+	SFNodeBloom:           "SFNodeBloom",
+	SFNodeWitness:         "SFNodeWitness",
+	SFNodeCF:              "SFNodeCF",
+	SFNodeNetworkLimited:  "SFNodeNetworkLimited",
+	SFNodeMWEB:            "SFNodeMWEB",
+	SFNodeMWEBLightClient: "SFNodeMWEBLightClient",
 }
 
 // orderedSFStrings is an ordered list of service flags from highest to
@@ -116,6 +121,7 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeCF,
 	SFNodeNetworkLimited,
 	SFNodeMWEB,
+	SFNodeMWEBLightClient,
 }
 
 // String returns the ServiceFlag in human-readable form.
