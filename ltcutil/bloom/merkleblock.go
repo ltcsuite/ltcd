@@ -135,7 +135,8 @@ func (m *merkleBlock) traverseAndExtract(height, pos uint32,
 		}
 
 		// Combine them before returning
-		return blockchain.HashMerkleBranches(left, right)
+		hash := blockchain.HashMerkleBranches(left, right)
+		return &hash
 	}
 }
 
