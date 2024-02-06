@@ -405,75 +405,14 @@ func (msg *MsgTx) WitnessHash() chainhash.Hash {
 // Copy creates a deep copy of a transaction so that the original does not get
 // modified when the copy is manipulated.
 func (msg *MsgTx) Copy() *MsgTx {
-	// Create new tx and start by copying primitive values and making space
-	// for the transaction inputs and outputs.
-	newTx := MsgTx{
-		Version:  msg.Version,
-		TxIn:     make([]*TxIn, 0, len(msg.TxIn)),
-		TxOut:    make([]*TxOut, 0, len(msg.TxOut)),
-		LockTime: msg.LockTime,
+	var buf bytes.Buffer
+	if err := msg.Serialize(&buf); err != nil {
+		return nil
 	}
-
-	// Deep copy the old TxIn data.
-	for _, oldTxIn := range msg.TxIn {
-		// Deep copy the old previous outpoint.
-		oldOutPoint := oldTxIn.PreviousOutPoint
-		newOutPoint := OutPoint{}
-		newOutPoint.Hash.SetBytes(oldOutPoint.Hash[:])
-		newOutPoint.Index = oldOutPoint.Index
-
-		// Deep copy the old signature script.
-		var newScript []byte
-		oldScript := oldTxIn.SignatureScript
-		oldScriptLen := len(oldScript)
-		if oldScriptLen > 0 {
-			newScript = make([]byte, oldScriptLen)
-			copy(newScript, oldScript[:oldScriptLen])
-		}
-
-		// Create new txIn with the deep copied data.
-		newTxIn := TxIn{
-			PreviousOutPoint: newOutPoint,
-			SignatureScript:  newScript,
-			Sequence:         oldTxIn.Sequence,
-		}
-
-		// If the transaction is witnessy, then also copy the
-		// witnesses.
-		if len(oldTxIn.Witness) != 0 {
-			// Deep copy the old witness data.
-			newTxIn.Witness = make([][]byte, len(oldTxIn.Witness))
-			for i, oldItem := range oldTxIn.Witness {
-				newItem := make([]byte, len(oldItem))
-				copy(newItem, oldItem)
-				newTxIn.Witness[i] = newItem
-			}
-		}
-
-		// Finally, append this fully copied txin.
-		newTx.TxIn = append(newTx.TxIn, &newTxIn)
+	var newTx MsgTx
+	if err := newTx.Deserialize(&buf); err != nil {
+		return nil
 	}
-
-	// Deep copy the old TxOut data.
-	for _, oldTxOut := range msg.TxOut {
-		// Deep copy the old PkScript
-		var newScript []byte
-		oldScript := oldTxOut.PkScript
-		oldScriptLen := len(oldScript)
-		if oldScriptLen > 0 {
-			newScript = make([]byte, oldScriptLen)
-			copy(newScript, oldScript[:oldScriptLen])
-		}
-
-		// Create new txOut with the deep copied data and append it to
-		// new Tx.
-		newTxOut := TxOut{
-			Value:    oldTxOut.Value,
-			PkScript: newScript,
-		}
-		newTx.TxOut = append(newTx.TxOut, &newTxOut)
-	}
-
 	return &newTx
 }
 
