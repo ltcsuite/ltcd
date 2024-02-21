@@ -40,6 +40,8 @@ const (
 	InvTypeWitnessBlock         InvType = InvTypeBlock | InvWitnessFlag
 	InvTypeWitnessTx            InvType = InvTypeTx | InvWitnessFlag
 	InvTypeFilteredWitnessBlock InvType = InvTypeFilteredBlock | InvWitnessFlag
+	InvTypeMwebBlock            InvType = InvTypeWitnessBlock | InvMwebFlag
+	InvTypeMwebTx               InvType = InvTypeWitnessTx | InvMwebFlag
 	InvTypeMwebHeader           InvType = 8 | InvMwebFlag
 	InvTypeMwebLeafset          InvType = 9 | InvMwebFlag
 )
@@ -53,6 +55,8 @@ var ivStrings = map[InvType]string{
 	InvTypeWitnessBlock:         "MSG_WITNESS_BLOCK",
 	InvTypeWitnessTx:            "MSG_WITNESS_TX",
 	InvTypeFilteredWitnessBlock: "MSG_FILTERED_WITNESS_BLOCK",
+	InvTypeMwebBlock:            "MSG_MWEB_BLOCK",
+	InvTypeMwebTx:               "MSG_MWEB_TX",
 	InvTypeMwebHeader:           "MSG_MWEB_HEADER",
 	InvTypeMwebLeafset:          "MSG_MWEB_LEAFSET",
 }
