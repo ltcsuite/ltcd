@@ -31,7 +31,7 @@ type BlockClock interface {
 // passed.
 type ConsensusDeploymentStarter interface {
 	// HasStarted returns true if the consensus deployment has started.
-	HasStarted(*wire.BlockHeader) (bool, error)
+	HasStarted(*wire.BlockHeader, int32) (bool, error)
 }
 
 // ClockConsensusDeploymentStarter is a more specialized version of the
@@ -53,7 +53,7 @@ type ClockConsensusDeploymentStarter interface {
 // deployment is no longer eligible for activation.
 type ConsensusDeploymentEnder interface {
 	// HasEnded returns true if the consensus deployment has ended.
-	HasEnded(*wire.BlockHeader) (bool, error)
+	HasEnded(*wire.BlockHeader, int32) (bool, error)
 }
 
 // ClockConsensusDeploymentEnder is a more specialized version of the
@@ -96,7 +96,9 @@ func (m *MedianTimeDeploymentStarter) SynchronizeClock(clock BlockClock) {
 }
 
 // HasStarted returns true if the consensus deployment has started.
-func (m *MedianTimeDeploymentStarter) HasStarted(blkHeader *wire.BlockHeader) (bool, error) {
+func (m *MedianTimeDeploymentStarter) HasStarted(
+	blkHeader *wire.BlockHeader, blkHeight int32) (bool, error) {
+
 	switch {
 	// If we haven't yet been synchronized with a block clock, then we
 	// can't tell the time, so we'll fail.
@@ -146,7 +148,9 @@ func NewMedianTimeDeploymentEnder(endTime time.Time) *MedianTimeDeploymentEnder 
 }
 
 // HasEnded returns true if the deployment has ended.
-func (m *MedianTimeDeploymentEnder) HasEnded(blkHeader *wire.BlockHeader) (bool, error) {
+func (m *MedianTimeDeploymentEnder) HasEnded(
+	blkHeader *wire.BlockHeader, blkHeight int32) (bool, error) {
+
 	switch {
 	// If we haven't yet been synchronized with a block clock, then we can't tell
 	// the time, so we'll we haven't yet been synchronized with a block

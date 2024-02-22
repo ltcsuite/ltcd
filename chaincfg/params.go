@@ -144,6 +144,11 @@ const (
 	// the deployment of BIPS 340, 341 and 342.
 	DeploymentTaproot
 
+	// DeploymentMweb defines the rule change deployment ID for the
+	// MWEB soft-fork package. The MWEB package includes the deployment
+	// of LIPS 2, 3 and 4.
+	DeploymentMweb
+
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
 
@@ -379,14 +384,21 @@ var MainNetParams = Params{
 		},
 		DeploymentTaproot: {
 			BitNumber: 2,
-			DeploymentStarter: NewMedianTimeDeploymentStarter(
-				time.Unix(1619222400, 0), // April 24th, 2021 UTC.
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2161152, // End November 2021
 			),
-			DeploymentEnder: NewMedianTimeDeploymentEnder(
-				time.Unix(1628640000, 0), // August 11th, 2021 UTC.
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2370816, // 364 days later
 			),
-			CustomActivationThreshold: 1815, // 90%
-			MinActivationHeight:       709_632,
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2217600, // End Feb 2022
+			),
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2427264, // 364 days later
+			),
 		},
 	},
 
@@ -500,7 +512,15 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 108, // Only needs 75% hash rate.
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1601450001, 0), // September 30, 2020 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires.
+			),
 		},
 	},
 
@@ -616,13 +636,21 @@ var TestNet4Params = Params{
 		},
 		DeploymentTaproot: {
 			BitNumber: 2,
-			DeploymentStarter: NewMedianTimeDeploymentStarter(
-				time.Unix(1619222400, 0), // April 24th, 2021 UTC.
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2225664, // March 2022
 			),
-			DeploymentEnder: NewMedianTimeDeploymentEnder(
-				time.Unix(1628640000, 0), // August 11th, 2021 UTC
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2435328, // 364 days later
 			),
-			CustomActivationThreshold: 1512, // 75%
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2209536, // Jan/Feb 2022
+			),
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2419200, // 364 days later
+			),
 		},
 	},
 
