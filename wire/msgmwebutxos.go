@@ -15,7 +15,7 @@ import (
 const MaxMwebUtxosPerQuery = 4096
 
 type MwebNetUtxo struct {
-	Height    int32
+	Height    int32 // memory only
 	LeafIndex uint64
 	Output    *MwebOutput
 	OutputId  *chainhash.Hash
@@ -26,11 +26,6 @@ type MwebNetUtxo struct {
 // decoding from the wire.
 func readMwebNetUtxo(r io.Reader, pver uint32, utxo *MwebNetUtxo,
 	utxoType MwebNetUtxoType) (err error) {
-
-	err = readElement(r, &utxo.Height)
-	if err != nil {
-		return
-	}
 
 	utxo.LeafIndex, err = ReadVarInt(r, pver)
 	if err != nil {
@@ -64,12 +59,7 @@ func readMwebNetUtxo(r io.Reader, pver uint32, utxo *MwebNetUtxo,
 func writeMwebNetUtxo(w io.Writer, pver uint32, utxo *MwebNetUtxo,
 	utxoType MwebNetUtxoType) error {
 
-	err := writeElement(w, utxo.Height)
-	if err != nil {
-		return err
-	}
-
-	err = WriteVarInt(w, pver, utxo.LeafIndex)
+	err := WriteVarInt(w, pver, utxo.LeafIndex)
 	if err != nil {
 		return err
 	}
