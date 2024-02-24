@@ -565,7 +565,7 @@ var TestNet4Params = Params{
 	GenesisBlock:             &testNet4GenesisBlock,
 	GenesisHash:              &testNet4GenesisHash,
 	PowLimit:                 testNet4PowLimit,
-	PowLimitBits:             0x1e0ffff0,
+	PowLimitBits:             0x1e0fffff,
 	BIP0034Height:            76,
 	BIP0065Height:            76,
 	BIP0066Height:            76,
