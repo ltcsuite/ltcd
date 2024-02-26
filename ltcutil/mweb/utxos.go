@@ -91,7 +91,7 @@ func calcPeaks(nodes uint64) (peaks []nodeIdx) {
 	return
 }
 
-type verifyMwebUtxosVars struct {
+type verifyUtxosVars struct {
 	mwebUtxos                 *wire.MsgMwebUtxos
 	leafset                   *Leafset
 	firstLeafIdx, lastLeafIdx leafIdx
@@ -99,7 +99,9 @@ type verifyMwebUtxosVars struct {
 	isProofHash               map[nodeIdx]bool
 }
 
-func (v *verifyMwebUtxosVars) nextLeaf() (leafIndex leafIdx, hash *chainhash.Hash) {
+func (v *verifyUtxosVars) nextLeaf() (
+	leafIndex leafIdx, hash *chainhash.Hash) {
+
 	if v.leavesUsed == len(v.mwebUtxos.Utxos) {
 		return
 	}
@@ -110,7 +112,9 @@ func (v *verifyMwebUtxosVars) nextLeaf() (leafIndex leafIdx, hash *chainhash.Has
 	return
 }
 
-func (v *verifyMwebUtxosVars) nextHash(nodeIdx nodeIdx) (hash *chainhash.Hash) {
+func (v *verifyUtxosVars) nextHash(
+	nodeIdx nodeIdx) (hash *chainhash.Hash) {
+
 	if v.hashesUsed == len(v.mwebUtxos.ProofHashes) {
 		return
 	}
@@ -120,7 +124,9 @@ func (v *verifyMwebUtxosVars) nextHash(nodeIdx nodeIdx) (hash *chainhash.Hash) {
 	return
 }
 
-func (v *verifyMwebUtxosVars) calcNodeHash(nodeIdx nodeIdx, height uint64) *chainhash.Hash {
+func (v *verifyUtxosVars) calcNodeHash(
+	nodeIdx nodeIdx, height uint64) *chainhash.Hash {
+
 	if nodeIdx < v.firstLeafIdx.nodeIdx() || v.isProofHash[nodeIdx] {
 		return v.nextHash(nodeIdx)
 	}
@@ -158,22 +164,19 @@ func (v *verifyMwebUtxosVars) calcNodeHash(nodeIdx nodeIdx, height uint64) *chai
 }
 
 func VerifyUtxos(mwebHeader *wire.MwebHeader,
-	mwebLeafset *Leafset, mwebUtxos *wire.MsgMwebUtxos) bool {
+	leafset *Leafset, mwebUtxos *wire.MsgMwebUtxos) bool {
 
-	if mwebUtxos.StartIndex == 0 &&
-		len(mwebUtxos.Utxos) == 0 &&
-		len(mwebUtxos.ProofHashes) == 0 &&
-		mwebHeader.OutputRoot.IsEqual(&chainhash.Hash{}) &&
-		mwebHeader.OutputMMRSize == 0 {
+	if mwebUtxos.StartIndex == 0 && len(mwebUtxos.Utxos) == 0 &&
+		len(mwebUtxos.ProofHashes) == 0 && leafset.Size == 0 &&
+		mwebHeader.OutputRoot.IsEqual(&chainhash.Hash{}) {
 		return true
-	} else if len(mwebUtxos.Utxos) == 0 ||
-		mwebHeader.OutputMMRSize == 0 {
+	} else if len(mwebUtxos.Utxos) == 0 || leafset.Size == 0 {
 		return false
 	}
 
-	v := &verifyMwebUtxosVars{
+	v := &verifyUtxosVars{
 		mwebUtxos:    mwebUtxos,
-		leafset:      mwebLeafset,
+		leafset:      leafset,
 		firstLeafIdx: leafIdx(mwebUtxos.StartIndex),
 		lastLeafIdx:  leafIdx(mwebUtxos.StartIndex),
 		isProofHash:  make(map[nodeIdx]bool),
@@ -193,7 +196,7 @@ func VerifyUtxos(mwebHeader *wire.MwebHeader,
 	}
 
 	var (
-		nextNodeIdx = leafIdx(mwebHeader.OutputMMRSize).nodeIdx()
+		nextNodeIdx = leafIdx(leafset.Size).nodeIdx()
 		peaks       = calcPeaks(uint64(nextNodeIdx))
 		peakHashes  []*chainhash.Hash
 	)
