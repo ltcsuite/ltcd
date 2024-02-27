@@ -1,0 +1,3 @@
+[submodule "ltcutil/mweb/mw/secp256k1"]
+	path = ltcutil/mweb/mw/secp256k1
+	url = https://github.com/litecoin-project/secp256k1
