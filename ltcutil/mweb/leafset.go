@@ -3,12 +3,15 @@ package mweb
 import (
 	"encoding/binary"
 	"io"
+
+	"github.com/ltcsuite/ltcd/wire"
 )
 
 type Leafset struct {
 	Bits   []byte
 	Size   uint64
 	Height uint32
+	Block  *wire.BlockHeader
 }
 
 func (l *Leafset) Contains(i uint64) bool {
@@ -29,6 +32,11 @@ func (l *Leafset) Serialize(w io.Writer) error {
 		return err
 	}
 
+	err = l.Block.Serialize(w)
+	if err != nil {
+		return err
+	}
+
 	_, err = w.Write(l.Bits)
 	return err
 }
@@ -40,6 +48,12 @@ func (l *Leafset) Deserialize(r io.Reader) error {
 	}
 
 	err = binary.Read(r, binary.LittleEndian, &l.Height)
+	if err != nil {
+		return err
+	}
+
+	l.Block = &wire.BlockHeader{}
+	err = l.Block.Deserialize(r)
 	if err != nil {
 		return err
 	}
