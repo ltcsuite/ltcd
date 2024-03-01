@@ -285,6 +285,7 @@ func createKernel(blind, stealthBlind *mw.BlindingFactor,
 
 func NewPegin(value uint64, kernel *wire.MwebKernel) *wire.TxOut {
 	script, _ := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_9).AddData(kernel.Hash()[:]).Script()
+		AddOp(txscript.MwebPeginWitnessVersion + txscript.OP_1 - 1).
+		AddData(kernel.Hash()[:]).Script()
 	return wire.NewTxOut(int64(value), script)
 }

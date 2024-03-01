@@ -65,8 +65,8 @@ const (
 	MultiSigTy                               // Multi signature.
 	NullDataTy                               // Empty data-only (provably prunable).
 	WitnessV1TaprootTy                       // Taproot output
-	WitnessMwebPeginTy                       // Hash of the MWEB peg-in kernel.
 	WitnessMwebHogAddrTy                     // MWEB HogAddr (first output of HogEx).
+	WitnessMwebPeginTy                       // Hash of the MWEB peg-in kernel.
 	WitnessUnknownTy                         // Witness unknown
 	MwebTy                                   // MWEB address
 )
@@ -83,8 +83,8 @@ var scriptClassToName = []string{
 	MultiSigTy:            "multisig",
 	NullDataTy:            "nulldata",
 	WitnessV1TaprootTy:    "witness_v1_taproot",
-	WitnessMwebPeginTy:    "witness_mweb_pegin",
 	WitnessMwebHogAddrTy:  "witness_mweb_hogaddr",
+	WitnessMwebPeginTy:    "witness_mweb_pegin",
 	WitnessUnknownTy:      "witness_unknown",
 	MwebTy:                "mweb",
 }

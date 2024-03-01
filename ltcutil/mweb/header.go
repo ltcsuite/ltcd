@@ -42,8 +42,9 @@ func VerifyHeader(mwebHeader *wire.MsgMwebHeader) error {
 	// the HogAddr, which shall consist of <OP_8><0x20> followed by
 	// the 32-byte hash of the MWEB header.
 
-	mwebHeaderHash := mwebHeader.MwebHeader.Hash()
-	script := append([]byte{txscript.OP_8, 0x20}, mwebHeaderHash[:]...)
+	script, _ := txscript.NewScriptBuilder().
+		AddOp(txscript.MwebHogAddrWitnessVersion + txscript.OP_1 - 1).
+		AddData(mwebHeader.MwebHeader.Hash()[:]).Script()
 	if !bytes.Equal(mwebHeader.Hogex.TxOut[0].PkScript, script) {
 		return fmt.Errorf("HogAddr mismatch, hogex=%v, expected=%v",
 			mwebHeader.Hogex.TxOut[0].PkScript, script)
