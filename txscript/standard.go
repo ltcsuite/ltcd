@@ -65,6 +65,8 @@ const (
 	MultiSigTy                               // Multi signature.
 	NullDataTy                               // Empty data-only (provably prunable).
 	WitnessV1TaprootTy                       // Taproot output
+	WitnessMwebPeginTy                       // Hash of the MWEB peg-in kernel.
+	WitnessMwebHogAddrTy                     // MWEB HogAddr (first output of HogEx).
 	WitnessUnknownTy                         // Witness unknown
 	MwebTy                                   // MWEB address
 )
@@ -81,6 +83,8 @@ var scriptClassToName = []string{
 	MultiSigTy:            "multisig",
 	NullDataTy:            "nulldata",
 	WitnessV1TaprootTy:    "witness_v1_taproot",
+	WitnessMwebPeginTy:    "witness_mweb_pegin",
+	WitnessMwebHogAddrTy:  "witness_mweb_hogaddr",
 	WitnessUnknownTy:      "witness_unknown",
 	MwebTy:                "mweb",
 }
@@ -556,6 +560,7 @@ func isNullDataScript(scriptVersion uint16, script []byte) bool {
 func typeOfScript(scriptVersion uint16, script []byte) ScriptClass {
 	switch scriptVersion {
 	case BaseSegwitWitnessVersion:
+		ver, prog, ok := extractWitnessProgramInfo(script)
 		switch {
 		case isPubKeyScript(script):
 			return PubKeyTy
@@ -567,6 +572,10 @@ func typeOfScript(scriptVersion uint16, script []byte) ScriptClass {
 			return WitnessV0PubKeyHashTy
 		case isWitnessScriptHashScript(script):
 			return WitnessV0ScriptHashTy
+		case ver == MwebHogAddrWitnessVersion && len(prog) == 32 && ok:
+			return WitnessMwebHogAddrTy
+		case ver == MwebPeginWitnessVersion && len(prog) == 32 && ok:
+			return WitnessMwebPeginTy
 		case isMultisigScript(scriptVersion, script):
 			return MultiSigTy
 		case isNullDataScript(scriptVersion, script):
@@ -1067,6 +1076,21 @@ func ExtractPkScriptAddrs(pkScript []byte,
 			addrs = append(addrs, addr)
 		}
 		return WitnessV1TaprootTy, addrs, 1, nil
+	}
+
+	if ver, prog, ok := extractWitnessProgramInfo(pkScript); ok {
+		var addrs []ltcutil.Address
+		addr, err := ltcutil.NewAddressWitnessMweb(
+			byte(ver), prog, chainParams)
+		if err == nil {
+			addrs = append(addrs, addr)
+		}
+		switch ver {
+		case MwebHogAddrWitnessVersion:
+			return WitnessMwebHogAddrTy, addrs, 1, nil
+		case MwebPeginWitnessVersion:
+			return WitnessMwebPeginTy, addrs, 1, nil
+		}
 	}
 
 	if sa := extractMweb(pkScript); sa != nil {

@@ -759,6 +759,42 @@ func newAddressTaproot(hrp string,
 	return addr, nil
 }
 
+// AddressWitnessMweb is an Address for a MWEB witness output.
+type AddressWitnessMweb struct {
+	AddressSegWit
+}
+
+// NewAddressWitnessMweb returns a new AddressWitnessMweb.
+func NewAddressWitnessMweb(witnessVersion byte, witnessProg []byte,
+	net *chaincfg.Params) (*AddressWitnessMweb, error) {
+
+	return newAddressWitnessMweb(net.Bech32HRPSegwit,
+		witnessVersion, witnessProg)
+}
+
+// newAddressWitnessMweb is an internal helper function to create an
+// AddressWitnessMweb with a known human-readable part, rather than
+// looking it up through its parameters.
+func newAddressWitnessMweb(hrp string, witnessVersion byte,
+	witnessProg []byte) (*AddressWitnessMweb, error) {
+
+	// Check for valid program length, which is 32 for MWEB.
+	if len(witnessProg) != 32 {
+		return nil, errors.New("witness program must be 32 " +
+			"bytes for mweb")
+	}
+
+	addr := &AddressWitnessMweb{
+		AddressSegWit{
+			hrp:            strings.ToLower(hrp),
+			witnessVersion: witnessVersion,
+			witnessProgram: witnessProg,
+		},
+	}
+
+	return addr, nil
+}
+
 // AddressMweb is an Address for an MWEB output.
 type AddressMweb struct {
 	hrp string
