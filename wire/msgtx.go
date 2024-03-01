@@ -348,18 +348,6 @@ type MsgTx struct {
 	Mweb     *MwebTx
 }
 
-// HogEx returns whether this is a MWEB HogEx transaction.
-func (msg *MsgTx) HogEx() bool {
-	if msg.IsHogEx {
-		return true
-	}
-	if len(msg.TxOut) == 0 {
-		return false
-	}
-	script := msg.TxOut[0].PkScript
-	return len(script) == 34 && script[0] == 0x58 && script[1] == 32
-}
-
 // AddTxIn adds a transaction input to the message.
 func (msg *MsgTx) AddTxIn(ti *TxIn) {
 	msg.TxIn = append(msg.TxIn, ti)
