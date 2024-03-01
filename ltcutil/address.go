@@ -83,7 +83,7 @@ func encodeSegWitAddress(hrp string, witnessVersion byte, witnessProgram []byte)
 
 	var bech string
 	switch witnessVersion {
-	case 0:
+	case 0, 8, 9:
 		bech, err = bech32.Encode(hrp, combined)
 
 	case 1:
