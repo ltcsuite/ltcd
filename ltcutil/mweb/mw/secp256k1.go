@@ -5,6 +5,7 @@ package mw
 #define USE_BASIC_CONFIG
 #define ENABLE_MODULE_GENERATOR
 #define ENABLE_MODULE_BULLETPROOF
+#include <string.h>
 #include "basic-config.h"
 #include "secp256k1.c"
 #include "precomputed_ecmult.c"
@@ -43,7 +44,7 @@ func NewRangeProof(value uint64, blind *BlindingFactor,
 
 	var (
 		scratch      = C.secp256k1_scratch_space_create(secp256k1Context, 1<<28)
-		proofLen     = C.ulong(len(proof))
+		proofLen     = C.size_t(len(proof))
 		blindPtr     = C.CBytes(blind[:])
 		blinds       = []*C.uchar{(*C.uchar)(blindPtr)}
 		nonce        = makeRandomBytes()
@@ -52,10 +53,10 @@ func NewRangeProof(value uint64, blind *BlindingFactor,
 
 	ret := C.secp256k1_bulletproof_rangeproof_prove(secp256k1Context,
 		scratch, secp256k1Generators, (*C.uchar)(&proof[0]), &proofLen,
-		nil, nil, nil, (*C.ulonglong)(&value), nil, &blinds[0], nil, 1,
+		nil, nil, nil, (*C.uint64_t)(&value), nil, &blinds[0], nil, 1,
 		&C.secp256k1_generator_const_h, 64, (*C.uchar)(&nonce[0]),
 		(*C.uchar)(&privateNonce[0]), (*C.uchar)(&extraData[0]),
-		C.ulong(len(extraData)), (*C.uchar)(&message[0]))
+		C.size_t(len(extraData)), (*C.uchar)(&message[0]))
 
 	C.free(blindPtr)
 	C.secp256k1_scratch_space_destroy(secp256k1Context, scratch)
