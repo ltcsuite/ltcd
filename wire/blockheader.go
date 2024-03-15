@@ -9,9 +9,8 @@ import (
 	"io"
 	"time"
 
-	"golang.org/x/crypto/scrypt"
-
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil/scrypt"
 )
 
 // MaxBlockHeaderPayload is the maximum number of bytes a block header can be.
@@ -61,15 +60,10 @@ func (h *BlockHeader) BlockHash() chainhash.Hash {
 // PowHash returns the litecoin scrypt hash of this block header. This value is
 // used to check the PoW on blocks advertised on the network.
 func (h *BlockHeader) PowHash() chainhash.Hash {
-	var powHash chainhash.Hash
-
 	buf := bytes.NewBuffer(make([]byte, 0, MaxBlockHeaderPayload))
 	_ = writeBlockHeader(buf, 0, h)
 
-	scryptHash, _ := scrypt.Key(buf.Bytes(), buf.Bytes(), 1024, 1, 1, 32)
-	copy(powHash[:], scryptHash)
-
-	return powHash
+	return *(*chainhash.Hash)(scrypt.Scrypt(buf.Bytes()))
 }
 
 // BtcDecode decodes r using the litecoin protocol encoding into the receiver.
