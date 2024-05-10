@@ -5,7 +5,7 @@
 package blockchain
 
 import (
-	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/chaincfg"
 )
 
 const (

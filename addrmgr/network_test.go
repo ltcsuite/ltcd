@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ltcsuite/ltcd/addrmgr"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/addrmgr"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // TestIPTypes ensures the various functions which determine the type of an IP

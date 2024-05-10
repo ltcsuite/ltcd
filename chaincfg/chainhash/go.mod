@@ -1,3 +1,3 @@
-module github.com/ltcsuite/ltcd/chaincfg/chainhash
+module github.com/ltcmweb/ltcd/chaincfg/chainhash
 
 go 1.17

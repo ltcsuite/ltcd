@@ -58,7 +58,7 @@ A quick overview of the major features peer provides are as follows:
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/peer
+$ go get -u github.com/ltcmweb/ltcd/peer
 ```
 
 ## Examples

@@ -7,7 +7,7 @@ package base58_test
 import (
 	"testing"
 
-	"github.com/ltcsuite/ltcd/ltcutil/base58"
+	"github.com/ltcmweb/ltcd/ltcutil/base58"
 )
 
 var checkEncodingStringTests = []struct {

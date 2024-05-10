@@ -1,4 +1,4 @@
-PKG := github.com/ltcsuite/ltcd
+PKG := github.com/ltcmweb/ltcd
 
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc

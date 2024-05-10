@@ -6,8 +6,8 @@ import (
 	"io"
 	"sort"
 
-	"github.com/ltcsuite/ltcd/txscript"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // PInput is a struct encapsulating all the data that can be attached to any

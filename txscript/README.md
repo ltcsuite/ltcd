@@ -20,7 +20,7 @@ can be found at https://en.bitcoin.it/wiki/Script
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/txscript
+$ go get -u github.com/ltcmweb/ltcd/txscript
 ```
 
 ## Examples

@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // POutput is a struct encapsulating all the data that can be attached

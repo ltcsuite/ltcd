@@ -21,7 +21,7 @@ block chain.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/blockchain
+$ go get -u github.com/ltcmweb/ltcd/blockchain
 ```
 
 ## Litecoin Chain Processing Overview

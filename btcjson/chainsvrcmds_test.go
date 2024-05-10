@@ -12,8 +12,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/btcjson"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/btcjson"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // TestChainSvrCmds tests all of the chain server commands marshal and unmarshal

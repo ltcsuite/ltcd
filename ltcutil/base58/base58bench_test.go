@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/ltcutil/base58"
+	"github.com/ltcmweb/ltcd/ltcutil/base58"
 )
 
 var (

@@ -15,7 +15,7 @@ A comprehensive suite of tests is provided to ensure proper functionality.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/ltcutil/gcs
+$ go get -u github.com/ltcmweb/ltcd/ltcutil/gcs
 ```
 
 ## License

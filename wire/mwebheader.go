@@ -9,7 +9,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 	"lukechampine.com/blake3"
 )
 

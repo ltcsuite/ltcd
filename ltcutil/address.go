@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ltcsuite/ltcd/btcec/v2"
-	"github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/ltcsuite/ltcd/ltcutil/base58"
-	"github.com/ltcsuite/ltcd/ltcutil/bech32"
-	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
+	"github.com/ltcmweb/ltcd/btcec/v2"
+	"github.com/ltcmweb/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/ltcutil/base58"
+	"github.com/ltcmweb/ltcd/ltcutil/bech32"
+	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 	"golang.org/x/crypto/ripemd160"
 )
 

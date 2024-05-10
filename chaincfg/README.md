@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/chaincfg"
 )
 
 var testnet = flag.Bool("testnet", false, "operate on the testnet Litecoin network")
@@ -55,7 +55,7 @@ func main() {
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/chaincfg
+$ go get -u github.com/ltcmweb/ltcd/chaincfg
 ```
 
 ## GPG Verification Key

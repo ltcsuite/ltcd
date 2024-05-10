@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/btcec/v2"
+	"github.com/ltcmweb/ltcd/btcec/v2"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // Bip16Activation is the timestamp where BIP0016 is valid to use in the

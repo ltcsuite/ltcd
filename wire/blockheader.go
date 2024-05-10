@@ -9,8 +9,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil/scrypt"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/ltcutil/scrypt"
 )
 
 // MaxBlockHeaderPayload is the maximum number of bytes a block header can be.

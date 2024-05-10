@@ -5,7 +5,7 @@
 package psbt
 
 import (
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // MinTxVersion is the lowest transaction version that we'll permit.

@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 )
 
 // TestGetHeaders tests the MsgGetHeader API.

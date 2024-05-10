@@ -4,7 +4,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
+	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 )
 
 type (

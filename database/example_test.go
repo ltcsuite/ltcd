@@ -11,11 +11,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/ltcsuite/ltcd/database"
-	_ "github.com/ltcsuite/ltcd/database/ffldb"
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/database"
+	_ "github.com/ltcmweb/ltcd/database/ffldb"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // This example demonstrates creating a new database.
@@ -23,8 +23,8 @@ func ExampleCreate() {
 	// This example assumes the ffldb driver is imported.
 	//
 	// import (
-	// 	"github.com/ltcsuite/ltcd/database"
-	// 	_ "github.com/ltcsuite/ltcd/database/ffldb"
+	// 	"github.com/ltcmweb/ltcd/database"
+	// 	_ "github.com/ltcmweb/ltcd/database/ffldb"
 	// )
 
 	// Create a database and schedule it to be closed and removed on exit.
@@ -49,8 +49,8 @@ func Example_basicUsage() {
 	// This example assumes the ffldb driver is imported.
 	//
 	// import (
-	// 	"github.com/ltcsuite/ltcd/database"
-	// 	_ "github.com/ltcsuite/ltcd/database/ffldb"
+	// 	"github.com/ltcmweb/ltcd/database"
+	// 	_ "github.com/ltcmweb/ltcd/database/ffldb"
 	// )
 
 	// Create a database and schedule it to be closed and removed on exit.
@@ -115,8 +115,8 @@ func Example_blockStorageAndRetrieval() {
 	// This example assumes the ffldb driver is imported.
 	//
 	// import (
-	// 	"github.com/ltcsuite/ltcd/database"
-	// 	_ "github.com/ltcsuite/ltcd/database/ffldb"
+	// 	"github.com/ltcmweb/ltcd/database"
+	// 	_ "github.com/ltcmweb/ltcd/database/ffldb"
 	// )
 
 	// Create a database and schedule it to be closed and removed on exit.

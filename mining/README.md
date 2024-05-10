@@ -12,7 +12,7 @@ This package is currently a work in progress.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/mining
+$ go get -u github.com/ltcmweb/ltcd/mining
 ```
 
 ## License

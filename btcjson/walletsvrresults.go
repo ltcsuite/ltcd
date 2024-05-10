@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ltcsuite/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/txscript"
 )
 
 // CreateWalletResult models the result of the createwallet command.

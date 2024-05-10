@@ -16,7 +16,7 @@ now.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/mining/cpuminer
+$ go get -u github.com/ltcmweb/ltcd/mining/cpuminer
 ```
 
 ## License

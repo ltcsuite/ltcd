@@ -18,7 +18,7 @@ protocol level.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/wire
+$ go get -u github.com/ltcmweb/ltcd/wire
 ```
 
 ## Litecoin Message Overview
