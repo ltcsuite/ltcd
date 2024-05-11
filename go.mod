@@ -12,7 +12,8 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/ltcmweb/ltcd/btcec/v2 v2.3.3
 	github.com/ltcmweb/ltcd/chaincfg/chainhash v1.0.3
-	github.com/ltcmweb/ltcd/ltcutil v1.2.2
+	github.com/ltcmweb/ltcd/ltcutil v1.2.3
+	github.com/ltcmweb/secp256k1 v0.1.0
 	github.com/stretchr/testify v1.8.3
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	golang.org/x/crypto v0.7.0

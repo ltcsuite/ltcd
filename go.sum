@@ -71,6 +71,8 @@ github.com/ltcmweb/ltcd/chaincfg/chainhash v1.0.3 h1:CAPyzHI3bCFRrrVHZkDUR2i3Awj
 github.com/ltcmweb/ltcd/chaincfg/chainhash v1.0.3/go.mod h1:zB+HhI2IbIwTGpdAhdzpm1GVX4ShcWTgN42+ar9HXrg=
 github.com/ltcmweb/ltcd/ltcutil v1.2.2 h1:GQI4bdMwgrMz8ClO2cOPSNs80E6I0ixTSk9DgA3dyxU=
 github.com/ltcmweb/ltcd/ltcutil v1.2.2/go.mod h1:ezd8H9vagau9j+/STipVxok78u01b7xlj2ImrFbGhkQ=
+github.com/ltcmweb/secp256k1 v0.1.0 h1:34S8JTD/LsLqenFPXQnI1rYSKstgDzsyjLhhc/harAs=
+github.com/ltcmweb/secp256k1 v0.1.0/go.mod h1:Kdj2WHIAc0Y1apPtVY7nVxImRWiRTQue2vs1gt1VoEc=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/nxadm/tail v1.4.8 h1:nPr65rt6Y5JFSKQO7qToXr7pePgD6Gwiw05lkbyAQTE=
 github.com/nxadm/tail v1.4.8/go.mod h1:+ncqLTQzXmGhMZNUePPaPqPvBxHAIsmXswZKocGu+AU=

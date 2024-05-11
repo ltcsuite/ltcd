@@ -4,10 +4,10 @@ go 1.17
 
 require (
 	github.com/davecgh/go-spew v1.1.1
-	github.com/ltcmweb/ltcd v0.24.2
+	github.com/ltcmweb/ltcd v0.24.3
 	github.com/ltcmweb/ltcd/btcec/v2 v2.3.3
 	github.com/ltcmweb/ltcd/chaincfg/chainhash v1.0.3
-	github.com/ltcmweb/ltcd/ltcutil v1.2.2
+	github.com/ltcmweb/ltcd/ltcutil v1.2.3
 	github.com/stretchr/testify v1.8.3
 )
 

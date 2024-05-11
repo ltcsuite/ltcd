@@ -7,9 +7,10 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
 	github.com/kkdai/bstream v1.0.0
-	github.com/ltcmweb/ltcd v0.24.2
+	github.com/ltcmweb/ltcd v0.24.3
 	github.com/ltcmweb/ltcd/btcec/v2 v2.3.3
 	github.com/ltcmweb/ltcd/chaincfg/chainhash v1.0.3
+	github.com/ltcmweb/secp256k1 v0.1.0
 	golang.org/x/crypto v0.7.0
 	lukechampine.com/blake3 v1.2.1
 )
