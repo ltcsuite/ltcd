@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcmweb/ltcd/txscript"
 	"github.com/ltcmweb/ltcd/wire"
@@ -39,7 +40,14 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		return nil, nil, errors.New("total amount mismatch")
 	}
 
-	inputs, inputBlind, inputKey := createInputs(coins)
+	var inputBlind mw.BlindingFactor
+	coinMap := map[chainhash.Hash]*Coin{}
+	for _, coin := range coins {
+		blind := mw.BlindSwitch(coin.Blind, coin.Value)
+		inputBlind = *inputBlind.Add(blind)
+		coinMap[*coin.OutputId] = coin
+	}
+
 	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients)
 
 	// Total kernel offset is split between raw kernel_offset
@@ -51,40 +59,16 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	}
 	kernelBlind := outputBlind.Sub(&inputBlind).Sub(&kernelOffset)
 
-	// MW: FUTURE - This is only needed for peg-ins or when no change
-	var stealthBlind mw.BlindingFactor
-	if _, err := rand.Read(stealthBlind[:]); err != nil {
+	inputs, kernel, kernelOffset, stealthOffset, err :=
+		createInputsAndKernel(coins, outputKey, kernelBlind, fee, pegin, pegouts)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	kernel := createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
-	stealthOffset := (*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
-
-	return &wire.MwebTx{
-		KernelOffset:  kernelOffset,
-		StealthOffset: *stealthOffset,
-		TxBody: &wire.MwebTxBody{
-			Inputs:  inputs,
-			Outputs: outputs,
-			Kernels: []*wire.MwebKernel{kernel},
-		},
-	}, newCoins, nil
-}
-
-func createInputs(coins []*Coin) (inputs []*wire.MwebInput,
-	totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
-
-	var ephemeralKey mw.SecretKey
-
-	for _, coin := range coins {
-		if _, err := rand.Read(ephemeralKey[:]); err != nil {
-			panic(err)
-		}
+	for _, input := range inputs {
+		coin := coinMap[input.OutputId]
 		blind := mw.BlindSwitch(coin.Blind, coin.Value)
-		commitment := mw.NewCommitment(blind, coin.Value)
-		inputs = append(inputs, createInput(coin, commitment, &ephemeralKey))
-		totalBlind = *totalBlind.Add(blind)
-		totalKey = *totalKey.Add(&ephemeralKey).Sub(coin.SpendKey)
+		input.Commitment = *mw.NewCommitment(blind, coin.Value)
 	}
 
 	sort.Slice(inputs, func(i, j int) bool {
@@ -93,13 +77,43 @@ func createInputs(coins []*Coin) (inputs []*wire.MwebInput,
 		return a.Cmp(b) < 0
 	})
 
+	return &wire.MwebTx{
+		KernelOffset:  kernelOffset,
+		StealthOffset: stealthOffset,
+		TxBody: &wire.MwebTxBody{
+			Inputs:  inputs,
+			Outputs: outputs,
+			Kernels: []*wire.MwebKernel{kernel},
+		},
+	}, newCoins, nil
+}
+
+func createInputsAndKernel(coins []*Coin,
+	outputKey mw.SecretKey, kernelBlind *mw.BlindingFactor,
+	fee, pegin uint64, pegouts []*wire.TxOut) (
+	inputs []*wire.MwebInput, kernel *wire.MwebKernel,
+	kernelOffset, stealthOffset mw.BlindingFactor, err error) {
+
+	var inputKey, ephemeralKey mw.SecretKey
+	for _, coin := range coins {
+		if _, err := rand.Read(ephemeralKey[:]); err != nil {
+			panic(err)
+		}
+		inputs = append(inputs, createInput(coin, &ephemeralKey))
+		inputKey = *inputKey.Add(&ephemeralKey).Sub(coin.SpendKey)
+	}
+
+	var stealthBlind mw.BlindingFactor
+	if _, err = rand.Read(stealthBlind[:]); err != nil {
+		return
+	}
+	kernel = createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
+	stealthOffset = *(*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
 	return
 }
 
 // Creates a standard input with a stealth key (feature bit = 1)
-func createInput(coin *Coin, commitment *mw.Commitment,
-	inputKey *mw.SecretKey) *wire.MwebInput {
-
+func createInput(coin *Coin, inputKey *mw.SecretKey) *wire.MwebInput {
 	features := wire.MwebInputStealthKeyFeatureBit
 	inputPubKey := inputKey.PubKey()
 	outputPubKey := coin.SpendKey.PubKey()
@@ -122,7 +136,6 @@ func createInput(coin *Coin, commitment *mw.Commitment,
 	return &wire.MwebInput{
 		Features:     features,
 		OutputId:     *coin.OutputId,
-		Commitment:   *commitment,
 		InputPubKey:  inputPubKey,
 		OutputPubKey: *outputPubKey,
 		Signature:    mw.Sign(sigKey, msgHash),
