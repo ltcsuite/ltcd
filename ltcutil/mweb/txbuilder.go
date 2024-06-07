@@ -41,11 +41,11 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	}
 
 	var inputBlind mw.BlindingFactor
-	coinMap := map[chainhash.Hash]*Coin{}
+	commitments := map[chainhash.Hash]*mw.Commitment{}
 	for _, coin := range coins {
 		blind := mw.BlindSwitch(coin.Blind, coin.Value)
 		inputBlind = *inputBlind.Add(blind)
-		coinMap[*coin.OutputId] = coin
+		commitments[*coin.OutputId] = mw.NewCommitment(blind, coin.Value)
 	}
 
 	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients)
@@ -66,11 +66,8 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	}
 
 	for _, input := range inputs {
-		coin := coinMap[input.OutputId]
-		blind := mw.BlindSwitch(coin.Blind, coin.Value)
-		input.Commitment = *mw.NewCommitment(blind, coin.Value)
+		input.Commitment = *commitments[input.OutputId]
 	}
-
 	sort.Slice(inputs, func(i, j int) bool {
 		a := new(big.Int).SetBytes(inputs[i].OutputId[:])
 		b := new(big.Int).SetBytes(inputs[j].OutputId[:])
