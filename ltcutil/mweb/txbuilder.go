@@ -16,8 +16,12 @@ import (
 	"lukechampine.com/blake3"
 )
 
+type CreateInputsAndKernelFunc func(*mw.SecretKey, *mw.BlindingFactor) (
+	[]*wire.MwebInput, *wire.MwebKernel, *mw.BlindingFactor, error)
+
 func NewTransaction(coins []*Coin, recipients []*Recipient,
-	fee, pegin uint64, pegouts []*wire.TxOut) (
+	fee, pegin uint64, pegouts []*wire.TxOut,
+	createInputsAndKernelFunc CreateInputsAndKernelFunc) (
 	tx *wire.MwebTx, newCoins []*Coin, err error) {
 
 	defer func() {
@@ -59,8 +63,16 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	}
 	kernelBlind := outputBlind.Sub(&inputBlind).Sub(&kernelOffset)
 
-	inputs, kernel, kernelOffset, stealthOffset, err :=
-		createInputsAndKernel(coins, outputKey, kernelBlind, fee, pegin, pegouts)
+	if createInputsAndKernelFunc == nil {
+		createInputsAndKernelFunc = func(outputKey *mw.SecretKey,
+			kernelBlind *mw.BlindingFactor) ([]*wire.MwebInput,
+			*wire.MwebKernel, *mw.BlindingFactor, error) {
+			return createInputsAndKernel(coins, outputKey,
+				kernelBlind, fee, pegin, pegouts)
+		}
+	}
+	inputs, kernel, stealthOffset, err :=
+		createInputsAndKernelFunc(&outputKey, kernelBlind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,7 +88,7 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 
 	return &wire.MwebTx{
 		KernelOffset:  kernelOffset,
-		StealthOffset: stealthOffset,
+		StealthOffset: *stealthOffset,
 		TxBody: &wire.MwebTxBody{
 			Inputs:  inputs,
 			Outputs: outputs,
@@ -86,10 +98,10 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 }
 
 func createInputsAndKernel(coins []*Coin,
-	outputKey mw.SecretKey, kernelBlind *mw.BlindingFactor,
+	outputKey *mw.SecretKey, kernelBlind *mw.BlindingFactor,
 	fee, pegin uint64, pegouts []*wire.TxOut) (
 	inputs []*wire.MwebInput, kernel *wire.MwebKernel,
-	kernelOffset, stealthOffset mw.BlindingFactor, err error) {
+	stealthOffset *mw.BlindingFactor, err error) {
 
 	var inputKey, ephemeralKey mw.SecretKey
 	for _, coin := range coins {
@@ -105,7 +117,7 @@ func createInputsAndKernel(coins []*Coin,
 		return
 	}
 	kernel = createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
-	stealthOffset = *(*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
+	stealthOffset = (*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
 	return
 }
 
