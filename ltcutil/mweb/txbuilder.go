@@ -116,7 +116,7 @@ func createInputsAndKernel(coins []*Coin,
 	if _, err = rand.Read(stealthBlind[:]); err != nil {
 		return
 	}
-	kernel = createKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
+	kernel = CreateKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
 	stealthOffset = (*mw.BlindingFactor)(outputKey.Add(&inputKey)).Sub(&stealthBlind)
 	return
 }
@@ -267,7 +267,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	}, mask.Blind
 }
 
-func createKernel(blind, stealthBlind *mw.BlindingFactor,
+func CreateKernel(blind, stealthBlind *mw.BlindingFactor,
 	fee, pegin *uint64, pegouts []*wire.TxOut,
 	lockHeight *int32) *wire.MwebKernel {
 
