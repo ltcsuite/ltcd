@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"errors"
 	"io"
 
@@ -43,6 +44,12 @@ func (mk *MwebKernel) Hash() *chainhash.Hash {
 	h := blake3.New(32, nil)
 	mk.write(h, 0, false)
 	return (*chainhash.Hash)(h.Sum(nil))
+}
+
+func (mk *MwebKernel) Message() []byte {
+	var buf bytes.Buffer
+	mk.write(&buf, 0, true)
+	return buf.Bytes()
 }
 
 func (mk *MwebKernel) MessageHash() *chainhash.Hash {
