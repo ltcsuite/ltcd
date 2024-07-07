@@ -165,17 +165,18 @@ func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
 		if _, err := rand.Read(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
-		output, blind := createOutput(recipient, &ephemeralKey)
+		output, blind, shared := createOutput(recipient, &ephemeralKey)
 		totalBlind = *totalBlind.Add(mw.BlindSwitch(blind, recipient.Value))
 		totalKey = *totalKey.Add(&ephemeralKey)
 		outputs = append(outputs, output)
 
 		coins = append(coins, &Coin{
-			Blind:     blind,
-			Value:     recipient.Value,
-			OutputId:  output.Hash(),
-			SenderKey: &ephemeralKey,
-			Address:   recipient.Address,
+			Blind:        blind,
+			Value:        recipient.Value,
+			OutputId:     output.Hash(),
+			SenderKey:    &ephemeralKey,
+			Address:      recipient.Address,
+			SharedSecret: shared,
 		})
 	}
 
@@ -189,7 +190,7 @@ func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
 }
 
 func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
-	*wire.MwebOutput, *mw.BlindingFactor) {
+	*wire.MwebOutput, *mw.BlindingFactor, *mw.SecretKey) {
 
 	// We only support standard feature fields for now
 	features := wire.MwebOutputMessageStandardFieldsFeatureBit
@@ -264,7 +265,7 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 		RangeProof:     &rangeProof,
 		RangeProofHash: rangeProofHash,
 		Signature:      signature,
-	}, mask.Blind
+	}, mask.Blind, t
 }
 
 func CreateKernel(blind, stealthBlind *mw.BlindingFactor,
