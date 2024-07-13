@@ -108,7 +108,7 @@ func createInputsAndKernel(coins []*Coin,
 		if _, err := rand.Read(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
-		inputs = append(inputs, createInput(coin, &ephemeralKey))
+		inputs = append(inputs, CreateInput(coin, &ephemeralKey))
 		inputKey = *inputKey.Add(&ephemeralKey).Sub(coin.SpendKey)
 	}
 
@@ -122,7 +122,7 @@ func createInputsAndKernel(coins []*Coin,
 }
 
 // Creates a standard input with a stealth key (feature bit = 1)
-func createInput(coin *Coin, inputKey *mw.SecretKey) *wire.MwebInput {
+func CreateInput(coin *Coin, inputKey *mw.SecretKey) *wire.MwebInput {
 	features := wire.MwebInputStealthKeyFeatureBit
 	inputPubKey := inputKey.PubKey()
 	outputPubKey := coin.SpendKey.PubKey()
