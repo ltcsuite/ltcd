@@ -165,7 +165,8 @@ func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
 		if _, err := rand.Read(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
-		output, blind, shared := createOutput(recipient, &ephemeralKey)
+		output, blind, shared := CreateOutput(recipient, &ephemeralKey)
+		SignOutput(output, recipient.Value, blind, &ephemeralKey)
 		totalBlind = *totalBlind.Add(mw.BlindSwitch(blind, recipient.Value))
 		totalKey = *totalKey.Add(&ephemeralKey)
 		outputs = append(outputs, output)
@@ -189,7 +190,7 @@ func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
 	return
 }
 
-func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
+func CreateOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	*wire.MwebOutput, *mw.BlindingFactor, *mw.SecretKey) {
 
 	// We only support standard feature fields for now
@@ -232,40 +233,39 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	// Derive view tag as first byte of H(T_tag, sA)
 	viewTag := mw.Hashed(mw.HashTagTag, sA[:])[0]
 
-	message := &wire.MwebOutputMessage{
-		Features:          features,
-		KeyExchangePubKey: *Ke,
-		ViewTag:           viewTag,
-		MaskedValue:       mv,
-		MaskedNonce:       *mn,
-	}
-	var messageBuf bytes.Buffer
-	message.Serialize(&messageBuf)
-
-	// Probably best to store sender_key so sender
-	// can identify all outputs they've sent?
-	rangeProof := secp256k1.NewRangeProof(recipient.Value,
-		*blind, make([]byte, 20), messageBuf.Bytes())
-	rangeProofHash := blake3.Sum256(rangeProof[:])
-
-	// Sign the output
-	h = blake3.New(32, nil)
-	h.Write(outputCommit[:])
-	h.Write(Ks[:])
-	h.Write(Ko[:])
-	h.Write(message.Hash()[:])
-	h.Write(rangeProofHash[:])
-	signature := mw.Sign(senderKey, h.Sum(nil))
-
 	return &wire.MwebOutput{
 		Commitment:     *outputCommit,
 		SenderPubKey:   *Ks,
 		ReceiverPubKey: *Ko,
-		Message:        *message,
-		RangeProof:     &rangeProof,
-		RangeProofHash: rangeProofHash,
-		Signature:      signature,
+		Message: wire.MwebOutputMessage{
+			Features:          features,
+			KeyExchangePubKey: *Ke,
+			ViewTag:           viewTag,
+			MaskedValue:       mv,
+			MaskedNonce:       *mn,
+		},
 	}, mask.Blind, t
+}
+
+func SignOutput(output *wire.MwebOutput, value uint64,
+	blind *mw.BlindingFactor, senderKey *mw.SecretKey) {
+
+	var messageBuf bytes.Buffer
+	output.Message.Serialize(&messageBuf)
+
+	rangeProof := secp256k1.NewRangeProof(
+		value, *mw.BlindSwitch(blind, value),
+		make([]byte, 20), messageBuf.Bytes())
+	output.RangeProof = &rangeProof
+	output.RangeProofHash = blake3.Sum256(rangeProof[:])
+
+	h := blake3.New(32, nil)
+	h.Write(output.Commitment[:])
+	h.Write(output.SenderPubKey[:])
+	h.Write(output.ReceiverPubKey[:])
+	h.Write(output.Message.Hash()[:])
+	h.Write(output.RangeProofHash[:])
+	output.Signature = mw.Sign(senderKey, h.Sum(nil))
 }
 
 func CreateKernel(blind, stealthBlind *mw.BlindingFactor,
