@@ -15,11 +15,14 @@ import (
 	"lukechampine.com/blake3"
 )
 
-type CreateInputsAndKernelFunc func(*mw.SecretKey, *mw.BlindingFactor) (
-	[]*wire.MwebInput, *wire.MwebKernel, *mw.BlindingFactor, error)
+type (
+	CreateInputsAndKernelFunc func(*mw.SecretKey, *mw.BlindingFactor) (
+		[]*wire.MwebInput, *wire.MwebKernel, *mw.BlindingFactor, error)
+	RandFunc func([]byte) error
+)
 
 func NewTransaction(coins []*Coin, recipients []*Recipient,
-	fee, pegin uint64, pegouts []*wire.TxOut,
+	fee, pegin uint64, pegouts []*wire.TxOut, randFunc RandFunc,
 	createInputsAndKernelFunc CreateInputsAndKernelFunc) (
 	tx *wire.MwebTx, newCoins []*Coin, err error) {
 
@@ -43,13 +46,20 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		return nil, nil, errors.New("total amount mismatch")
 	}
 
-	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients)
+	if randFunc == nil {
+		randFunc = func(b []byte) error {
+			_, err := rand.Read(b)
+			return err
+		}
+	}
+
+	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients, randFunc)
 
 	// Total kernel offset is split between raw kernel_offset
 	// and the kernel's blinding factor.
 	// sum(output.blind) - sum(input.blind) = kernel_offset + sum(kernel.blind)
 	var kernelOffset mw.BlindingFactor
-	if _, err := rand.Read(kernelOffset[:]); err != nil {
+	if err := randFunc(kernelOffset[:]); err != nil {
 		return nil, nil, err
 	}
 	kernelBlind := outputBlind.Sub(&kernelOffset)
@@ -62,7 +72,7 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 			kernelBlind *mw.BlindingFactor) ([]*wire.MwebInput,
 			*wire.MwebKernel, *mw.BlindingFactor, error) {
 			return createInputsAndKernel(coins, outputKey,
-				kernelBlind, fee, pegin, pegouts)
+				kernelBlind, fee, pegin, pegouts, randFunc)
 		}
 	}
 	inputs, kernel, stealthOffset, err :=
@@ -90,13 +100,13 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 
 func createInputsAndKernel(coins []*Coin,
 	outputKey *mw.SecretKey, kernelBlind *mw.BlindingFactor,
-	fee, pegin uint64, pegouts []*wire.TxOut) (
+	fee, pegin uint64, pegouts []*wire.TxOut, randFunc RandFunc) (
 	inputs []*wire.MwebInput, kernel *wire.MwebKernel,
 	stealthOffset *mw.BlindingFactor, err error) {
 
 	var inputKey, ephemeralKey mw.SecretKey
 	for _, coin := range coins {
-		if _, err := rand.Read(ephemeralKey[:]); err != nil {
+		if err := randFunc(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
 		inputs = append(inputs, CreateInput(coin, &ephemeralKey))
@@ -104,7 +114,7 @@ func createInputsAndKernel(coins []*Coin,
 	}
 
 	var stealthBlind mw.BlindingFactor
-	if _, err = rand.Read(stealthBlind[:]); err != nil {
+	if err = randFunc(stealthBlind[:]); err != nil {
 		return
 	}
 	kernel = CreateKernel(kernelBlind, &stealthBlind, &fee, &pegin, pegouts, nil)
@@ -148,13 +158,14 @@ type Recipient struct {
 	Address *mw.StealthAddress
 }
 
-func createOutputs(recipients []*Recipient) (outputs []*wire.MwebOutput,
-	coins []*Coin, totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
+func createOutputs(recipients []*Recipient, randFunc RandFunc) (
+	outputs []*wire.MwebOutput, coins []*Coin,
+	totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
 
 	var ephemeralKey mw.SecretKey
 
 	for _, recipient := range recipients {
-		if _, err := rand.Read(ephemeralKey[:]); err != nil {
+		if err := randFunc(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
 		output, blind, shared := CreateOutput(recipient, &ephemeralKey)
