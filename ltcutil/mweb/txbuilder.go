@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcmweb/ltcd/txscript"
 	"github.com/ltcmweb/ltcd/wire"
@@ -44,14 +43,6 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		return nil, nil, errors.New("total amount mismatch")
 	}
 
-	var inputBlind mw.BlindingFactor
-	commitments := map[chainhash.Hash]*mw.Commitment{}
-	for _, coin := range coins {
-		blind := mw.BlindSwitch(coin.Blind, coin.Value)
-		inputBlind = *inputBlind.Add(blind)
-		commitments[*coin.OutputId] = mw.NewCommitment(blind, coin.Value)
-	}
-
 	outputs, newCoins, outputBlind, outputKey := createOutputs(recipients)
 
 	// Total kernel offset is split between raw kernel_offset
@@ -61,7 +52,10 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 	if _, err := rand.Read(kernelOffset[:]); err != nil {
 		return nil, nil, err
 	}
-	kernelBlind := outputBlind.Sub(&inputBlind).Sub(&kernelOffset)
+	kernelBlind := outputBlind.Sub(&kernelOffset)
+	for _, coin := range coins {
+		kernelBlind = kernelBlind.Sub(mw.BlindSwitch(coin.Blind, coin.Value))
+	}
 
 	if createInputsAndKernelFunc == nil {
 		createInputsAndKernelFunc = func(outputKey *mw.SecretKey,
@@ -77,9 +71,6 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		return nil, nil, err
 	}
 
-	for _, input := range inputs {
-		input.Commitment = *commitments[input.OutputId]
-	}
 	sort.Slice(inputs, func(i, j int) bool {
 		a := new(big.Int).SetBytes(inputs[i].OutputId[:])
 		b := new(big.Int).SetBytes(inputs[j].OutputId[:])
@@ -145,6 +136,7 @@ func CreateInput(coin *Coin, inputKey *mw.SecretKey) *wire.MwebInput {
 	return &wire.MwebInput{
 		Features:     features,
 		OutputId:     *coin.OutputId,
+		Commitment:   *mw.SwitchCommit(coin.Blind, coin.Value),
 		InputPubKey:  inputPubKey,
 		OutputPubKey: *outputPubKey,
 		Signature:    mw.Sign(sigKey, msgHash),
