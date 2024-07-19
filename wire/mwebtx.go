@@ -3,6 +3,8 @@ package wire
 import (
 	"errors"
 	"io"
+	"math/big"
+	"sort"
 
 	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 )
@@ -20,6 +22,26 @@ type (
 		TxBody        *MwebTxBody
 	}
 )
+
+func (tb *MwebTxBody) Sort() {
+	sort.Slice(tb.Inputs, func(i, j int) bool {
+		a := new(big.Int).SetBytes(tb.Inputs[i].OutputId[:])
+		b := new(big.Int).SetBytes(tb.Inputs[j].OutputId[:])
+		return a.Cmp(b) < 0
+	})
+	sort.Slice(tb.Outputs, func(i, j int) bool {
+		a := new(big.Int).SetBytes(tb.Outputs[i].Hash()[:])
+		b := new(big.Int).SetBytes(tb.Outputs[j].Hash()[:])
+		return a.Cmp(b) < 0
+	})
+	sort.Slice(tb.Kernels, func(i, j int) bool {
+		da := tb.Kernels[i].SupplyChange()
+		db := tb.Kernels[j].SupplyChange()
+		a := new(big.Int).SetBytes(tb.Kernels[i].Hash()[:])
+		b := new(big.Int).SetBytes(tb.Kernels[j].Hash()[:])
+		return da > db || da == db && a.Cmp(b) < 0
+	})
+}
 
 // Reads a litecoin mweb txbody from r.  See Deserialize for
 // decoding mweb txbodys stored to disk, such as in a database,

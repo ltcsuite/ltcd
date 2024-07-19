@@ -58,6 +58,14 @@ func (mk *MwebKernel) MessageHash() *chainhash.Hash {
 	return (*chainhash.Hash)(h.Sum(nil))
 }
 
+func (mk *MwebKernel) SupplyChange() int64 {
+	n := int64(mk.Pegin) - int64(mk.Fee)
+	for _, pegout := range mk.Pegouts {
+		n -= pegout.Value
+	}
+	return n
+}
+
 // Reads a litecoin mweb kernel from r.  See Deserialize for
 // decoding mweb kernels stored to disk, such as in a database,
 // as opposed to decoding from the wire.

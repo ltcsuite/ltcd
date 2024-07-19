@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/big"
-	"sort"
 
 	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcmweb/ltcd/txscript"
@@ -81,20 +80,16 @@ func NewTransaction(coins []*Coin, recipients []*Recipient,
 		return nil, nil, err
 	}
 
-	sort.Slice(inputs, func(i, j int) bool {
-		a := new(big.Int).SetBytes(inputs[i].OutputId[:])
-		b := new(big.Int).SetBytes(inputs[j].OutputId[:])
-		return a.Cmp(b) < 0
-	})
-
+	txBody := &wire.MwebTxBody{
+		Inputs:  inputs,
+		Outputs: outputs,
+		Kernels: []*wire.MwebKernel{kernel},
+	}
+	txBody.Sort()
 	return &wire.MwebTx{
 		KernelOffset:  kernelOffset,
 		StealthOffset: *stealthOffset,
-		TxBody: &wire.MwebTxBody{
-			Inputs:  inputs,
-			Outputs: outputs,
-			Kernels: []*wire.MwebKernel{kernel},
-		},
+		TxBody:        txBody,
 	}, newCoins, nil
 }
 
@@ -183,13 +178,6 @@ func createOutputs(recipients []*Recipient, randFunc RandFunc) (
 			SharedSecret: shared,
 		})
 	}
-
-	sort.Slice(outputs, func(i, j int) bool {
-		a := new(big.Int).SetBytes(outputs[i].Hash()[:])
-		b := new(big.Int).SetBytes(outputs[j].Hash()[:])
-		return a.Cmp(b) < 0
-	})
-
 	return
 }
 
