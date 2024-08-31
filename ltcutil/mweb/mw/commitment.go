@@ -33,6 +33,10 @@ func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
 	secp256k1.ScalarBaseMultNonConst(blind.scalar(), &bj)
 	secp256k1.ScalarMultNonConst(&vs, generatorH(), &rj)
 	secp256k1.AddNonConst(&bj, &rj, &rj)
+	return toCommitment(&rj)
+}
+
+func toCommitment(rj *secp256k1.JacobianPoint) *Commitment {
 	rj.ToAffine()
 	c := &Commitment{8}
 	rj.X.PutBytesUnchecked(c[1:])
@@ -46,8 +50,7 @@ func SwitchCommit(blind *BlindingFactor, value uint64) *Commitment {
 	return NewCommitment(BlindSwitch(blind, value), value)
 }
 
-func (c *Commitment) PubKey() *PublicKey {
-	var Q secp256k1.JacobianPoint
+func (c *Commitment) toJacobian() (Q secp256k1.JacobianPoint) {
 	var t secp256k1.FieldVal
 	if Q.X.SetByteSlice(c[1:]) {
 		panic("overflowed")
@@ -59,5 +62,30 @@ func (c *Commitment) PubKey() *PublicKey {
 		Q.Y.Negate(1)
 	}
 	Q.Z.SetInt(1)
-	return toPubKey(&Q)
+	return
+}
+
+func (pk *PublicKey) Commitment() *Commitment {
+	rj := pk.toJacobian()
+	return toCommitment(&rj)
+}
+
+func (c *Commitment) PubKey() *PublicKey {
+	rj := c.toJacobian()
+	return toPubKey(&rj)
+}
+
+func (c *Commitment) Add(c2 *Commitment) *Commitment {
+	p1 := c.toJacobian()
+	p2 := c2.toJacobian()
+	secp256k1.AddNonConst(&p1, &p2, &p2)
+	return toCommitment(&p2)
+}
+
+func (c *Commitment) Sub(c2 *Commitment) *Commitment {
+	p1 := c.toJacobian()
+	p2 := c2.toJacobian()
+	p2.Y.Negate(1)
+	secp256k1.AddNonConst(&p1, &p2, &p2)
+	return toCommitment(&p2)
 }
