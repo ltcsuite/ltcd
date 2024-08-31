@@ -18,7 +18,11 @@ func (s *SecretKey) Add(sk *SecretKey) *SecretKey {
 }
 
 func (s *SecretKey) Sub(sk *SecretKey) *SecretKey {
-	r := SecretKey(s.scalar().Add(sk.scalar().Negate()).Bytes())
+	return s.Add(sk.Neg())
+}
+
+func (s *SecretKey) Neg() *SecretKey {
+	r := SecretKey(s.scalar().Negate().Bytes())
 	return &r
 }
 
