@@ -86,3 +86,16 @@ func (mi *MwebInput) write(w io.Writer, pver uint32) error {
 	_, err = w.Write(mi.Signature[:])
 	return err
 }
+
+func (mi *MwebInput) VerifySig() bool {
+	h := blake3.New(32, nil)
+	h.Write(mi.InputPubKey[:])
+	h.Write(mi.OutputPubKey[:])
+	keyHash := (*mw.SecretKey)(h.Sum(nil))
+	pubKey := mi.OutputPubKey.Mul(keyHash).Add(mi.InputPubKey)
+
+	h.Reset()
+	h.Write([]byte{byte(mi.Features)})
+	h.Write(mi.OutputId[:])
+	return mi.Signature.Verify(pubKey, h.Sum(nil))
+}

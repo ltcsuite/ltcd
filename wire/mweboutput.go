@@ -231,3 +231,13 @@ func (mo *MwebOutput) Serialize(w io.Writer) error {
 func (mo *MwebOutput) Deserialize(r io.Reader) error {
 	return mo.read(r, 0, false)
 }
+
+func (mo *MwebOutput) VerifySig() bool {
+	h := blake3.New(32, nil)
+	h.Write(mo.Commitment[:])
+	h.Write(mo.SenderPubKey[:])
+	h.Write(mo.ReceiverPubKey[:])
+	h.Write(mo.Message.Hash()[:])
+	h.Write(mo.RangeProofHash[:])
+	return mo.Signature.Verify(&mo.SenderPubKey, h.Sum(nil))
+}
