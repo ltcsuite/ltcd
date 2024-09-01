@@ -4,32 +4,39 @@ import "github.com/decred/dcrd/dcrec/secp256k1/v4"
 
 type PublicKey [33]byte
 
-func (pk *PublicKey) toJacobian() (p secp256k1.JacobianPoint) {
+func (pk *PublicKey) toJacobian() *secp256k1.JacobianPoint {
 	key, err := secp256k1.ParsePubKey(pk[:])
 	if err != nil {
 		panic(err)
 	}
-	key.AsJacobian(&p)
-	return
+	var r secp256k1.JacobianPoint
+	key.AsJacobian(&r)
+	return &r
 }
 
-func toPubKey(p *secp256k1.JacobianPoint) *PublicKey {
-	p.ToAffine()
-	key := secp256k1.NewPublicKey(&p.X, &p.Y)
+func toPubKey(r *secp256k1.JacobianPoint) *PublicKey {
+	r.ToAffine()
+	key := secp256k1.NewPublicKey(&r.X, &r.Y)
 	return (*PublicKey)(key.SerializeCompressed())
 }
 
-func (pk *PublicKey) mul(k *secp256k1.ModNScalar) *PublicKey {
-	p := pk.toJacobian()
-	secp256k1.ScalarMultNonConst(k, &p, &p)
-	return toPubKey(&p)
+func (pk *PublicKey) Add(p *PublicKey) *PublicKey {
+	r := p.toJacobian()
+	secp256k1.AddNonConst(pk.toJacobian(), r, r)
+	return toPubKey(r)
 }
 
-func (pk *PublicKey) Add(p *PublicKey) *PublicKey {
-	p1 := pk.toJacobian()
-	p2 := p.toJacobian()
-	secp256k1.AddNonConst(&p1, &p2, &p2)
-	return toPubKey(&p2)
+func (pk *PublicKey) Sub(p *PublicKey) *PublicKey {
+	r := p.toJacobian()
+	r.Y.Negate(1)
+	secp256k1.AddNonConst(pk.toJacobian(), r, r)
+	return toPubKey(r)
+}
+
+func (pk *PublicKey) mul(k *secp256k1.ModNScalar) *PublicKey {
+	r := pk.toJacobian()
+	secp256k1.ScalarMultNonConst(k, r, r)
+	return toPubKey(r)
 }
 
 func (pk *PublicKey) Mul(sk *SecretKey) *PublicKey {

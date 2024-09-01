@@ -27,20 +27,20 @@ func generatorH() *secp256k1.JacobianPoint {
 }
 
 func NewCommitment(blind *BlindingFactor, value uint64) *Commitment {
-	var vs secp256k1.ModNScalar
-	var bj, rj secp256k1.JacobianPoint
-	vs.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
-	secp256k1.ScalarBaseMultNonConst(blind.scalar(), &bj)
-	secp256k1.ScalarMultNonConst(&vs, generatorH(), &rj)
-	secp256k1.AddNonConst(&bj, &rj, &rj)
-	return toCommitment(&rj)
+	var v secp256k1.ModNScalar
+	var b, r secp256k1.JacobianPoint
+	v.SetByteSlice(binary.BigEndian.AppendUint64(nil, value))
+	secp256k1.ScalarBaseMultNonConst(blind.scalar(), &b)
+	secp256k1.ScalarMultNonConst(&v, generatorH(), &r)
+	secp256k1.AddNonConst(&b, &r, &r)
+	return toCommitment(&r)
 }
 
-func toCommitment(rj *secp256k1.JacobianPoint) *Commitment {
-	rj.ToAffine()
+func toCommitment(r *secp256k1.JacobianPoint) *Commitment {
+	r.ToAffine()
 	c := &Commitment{8}
-	rj.X.PutBytesUnchecked(c[1:])
-	if !rj.X.SquareRootVal(&rj.Y) {
+	r.X.PutBytesUnchecked(c[1:])
+	if !r.X.SquareRootVal(&r.Y) {
 		c[0]++
 	}
 	return c
@@ -50,42 +50,39 @@ func SwitchCommit(blind *BlindingFactor, value uint64) *Commitment {
 	return NewCommitment(BlindSwitch(blind, value), value)
 }
 
-func (c *Commitment) toJacobian() (Q secp256k1.JacobianPoint) {
+func (c *Commitment) toJacobian() *secp256k1.JacobianPoint {
+	var r secp256k1.JacobianPoint
 	var t secp256k1.FieldVal
-	if Q.X.SetByteSlice(c[1:]) {
+	if r.X.SetByteSlice(c[1:]) {
 		panic("overflowed")
 	}
-	if !Q.Y.SquareRootVal(t.SquareVal(&Q.X).Mul(&Q.X).AddInt(7)) {
+	if !r.Y.SquareRootVal(t.SquareVal(&r.X).Mul(&r.X).AddInt(7)) {
 		panic("invalid commitment")
 	}
 	if c[0]&1 > 0 {
-		Q.Y.Negate(1)
+		r.Y.Negate(1)
 	}
-	Q.Z.SetInt(1)
-	return
+	r.Z.SetInt(1)
+	return &r
 }
 
 func (pk *PublicKey) Commitment() *Commitment {
-	rj := pk.toJacobian()
-	return toCommitment(&rj)
+	return toCommitment(pk.toJacobian())
 }
 
 func (c *Commitment) PubKey() *PublicKey {
-	rj := c.toJacobian()
-	return toPubKey(&rj)
+	return toPubKey(c.toJacobian())
 }
 
 func (c *Commitment) Add(c2 *Commitment) *Commitment {
-	p1 := c.toJacobian()
-	p2 := c2.toJacobian()
-	secp256k1.AddNonConst(&p1, &p2, &p2)
-	return toCommitment(&p2)
+	r := c2.toJacobian()
+	secp256k1.AddNonConst(c.toJacobian(), r, r)
+	return toCommitment(r)
 }
 
 func (c *Commitment) Sub(c2 *Commitment) *Commitment {
-	p1 := c.toJacobian()
-	p2 := c2.toJacobian()
-	p2.Y.Negate(1)
-	secp256k1.AddNonConst(&p1, &p2, &p2)
-	return toCommitment(&p2)
+	r := c2.toJacobian()
+	r.Y.Negate(1)
+	secp256k1.AddNonConst(c.toJacobian(), r, r)
+	return toCommitment(r)
 }
