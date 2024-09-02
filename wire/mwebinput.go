@@ -88,6 +88,8 @@ func (mi *MwebInput) write(w io.Writer, pver uint32) error {
 }
 
 func (mi *MwebInput) VerifySig() bool {
+	defer func() { recover() }()
+
 	h := blake3.New(32, nil)
 	h.Write(mi.InputPubKey[:])
 	h.Write(mi.OutputPubKey[:])

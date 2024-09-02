@@ -37,6 +37,7 @@ func (sig *Signature) challenge(pk *PublicKey, msg []byte) *SecretKey {
 }
 
 func (sig *Signature) Verify(pk *PublicKey, msg []byte) bool {
+	defer func() { recover() }()
 	S := (*SecretKey)(sig[32:]).PubKey()
 	e := sig.challenge(pk, msg)
 	K := pk.Mul(e.Neg()).Add(S)
