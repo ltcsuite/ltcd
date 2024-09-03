@@ -200,3 +200,11 @@ func (mk *MwebKernel) write(w io.Writer, pver uint32, message bool) error {
 
 	return writeElements(w, mk.Excess[:], mk.Signature[:])
 }
+
+func (mk *MwebKernel) Serialize(w io.Writer) error {
+	return mk.write(w, 0, false)
+}
+
+func (mk *MwebKernel) Deserialize(r io.Reader) error {
+	return mk.read(r, 0)
+}
