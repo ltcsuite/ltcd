@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // TestPushedData ensured the PushedData function extracts the expected data out

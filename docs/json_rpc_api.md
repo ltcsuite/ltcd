@@ -1184,8 +1184,8 @@ import (
 	"log"
 	"path/filepath"
 
-	"github.com/ltcsuite/ltcd/rpcclient"
-	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/rpcclient"
+	"github.com/ltcmweb/ltcd/ltcutil"
 )
 
 func main() {
@@ -1247,9 +1247,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/rpcclient"
-	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/rpcclient"
+	"github.com/ltcmweb/ltcd/ltcutil"
 )
 
 func main() {
@@ -1339,9 +1339,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/rpcclient"
-	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/rpcclient"
+	"github.com/ltcmweb/ltcd/ltcutil"
 )
 
 func main() {

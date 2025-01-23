@@ -24,7 +24,7 @@ ints, etc) to higher-level types with many nice and useful properties.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/btcjson
+$ go get -u github.com/ltcmweb/ltcd/btcjson
 ```
 
 ## Examples

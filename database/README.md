@@ -37,7 +37,7 @@ storage, and strict checksums in key areas to ensure data integrity.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/database
+$ go get -u github.com/ltcmweb/ltcd/database
 ```
 
 ## Examples

@@ -20,7 +20,7 @@ of blocks that exercise the consensus validation rules.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/blockchain/fullblocktests
+$ go get -u github.com/ltcmweb/ltcd/blockchain/fullblocktests
 ```
 
 ## License

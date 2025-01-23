@@ -5,7 +5,7 @@
 package blockchain
 
 import (
-	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/chaincfg"
 )
 
 const (
@@ -157,7 +157,8 @@ func (c deploymentChecker) HasStarted(blkNode *blockNode) bool {
 	// Can't fail as we make sure to set the clock above when we
 	// instantiate *BlockChain.
 	header := blkNode.Header()
-	started, _ := c.deployment.DeploymentStarter.HasStarted(&header)
+	started, _ := c.deployment.DeploymentStarter.HasStarted(
+		&header, blkNode.height)
 
 	return started
 }
@@ -173,7 +174,8 @@ func (c deploymentChecker) HasEnded(blkNode *blockNode) bool {
 	// Can't fail as we make sure to set the clock above when we
 	// instantiate *BlockChain.
 	header := blkNode.Header()
-	ended, _ := c.deployment.DeploymentEnder.HasEnded(&header)
+	ended, _ := c.deployment.DeploymentEnder.HasEnded(
+		&header, blkNode.height)
 
 	return ended
 }

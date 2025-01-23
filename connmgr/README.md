@@ -29,7 +29,7 @@ In addition the connection manager provides the following utilities:
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/connmgr
+$ go get -u github.com/ltcmweb/ltcd/connmgr
 ```
 
 ## License

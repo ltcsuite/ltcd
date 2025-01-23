@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ltcsuite/ltcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 func init() {

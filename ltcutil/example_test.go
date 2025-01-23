@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/ltcutil"
 )
 
 func ExampleAmount() {

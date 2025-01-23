@@ -11,11 +11,11 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/txscript"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 const (
@@ -112,6 +112,31 @@ func IsCoinBaseTx(msgTx *wire.MsgTx) bool {
 // level util transaction as opposed to a raw wire transaction.
 func IsCoinBase(tx *ltcutil.Tx) bool {
 	return IsCoinBaseTx(tx.MsgTx())
+}
+
+// IsHogExTx determines whether or not a transaction is probably a
+// MWEB HogEx transaction.
+func IsHogExTx(msgTx *wire.MsgTx) bool {
+	if msgTx.IsHogEx {
+		return true
+	}
+
+	if len(msgTx.TxIn) == 0 || len(msgTx.TxOut) == 0 {
+		return false
+	}
+
+	if msgTx.TxIn[0].PreviousOutPoint.Index != 0 {
+		return false
+	}
+
+	ver, prog, err := txscript.ExtractWitnessProgramInfo(
+		msgTx.TxOut[0].PkScript,
+	)
+	if err != nil {
+		return false
+	}
+
+	return ver == txscript.MwebHogAddrWitnessVersion && len(prog) == 32
 }
 
 // SequenceLockActive determines if a transaction's sequence locks have been

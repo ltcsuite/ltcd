@@ -13,7 +13,7 @@ import (
 
 	"github.com/aead/siphash"
 	"github.com/kkdai/bstream"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // Inspired by https://github.com/rasky/gcs

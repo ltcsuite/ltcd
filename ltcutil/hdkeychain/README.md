@@ -38,7 +38,7 @@ report.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/ltcutil/hdkeychain
+$ go get -u github.com/ltcmweb/ltcd/ltcutil/hdkeychain
 ```
 
 ## Examples
