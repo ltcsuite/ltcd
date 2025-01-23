@@ -411,7 +411,7 @@ var MainNetParams = Params{
 var RegressionNetParams = Params{
 	Name:        "regtest",
 	Net:         wire.TestNet,
-	DefaultPort: "18444",
+	DefaultPort: "19444",
 	DNSSeeds:    []DNSSeed{},
 
 	// Chain parameters
