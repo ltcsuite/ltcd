@@ -12,9 +12,9 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/ltcsuite/ltcd/btcec/v2"
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/btcec/v2"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // ScriptFlags is a bitmask defining additional operations or tests that will be
@@ -146,6 +146,14 @@ const (
 	// TaprootWitnessVersion is the witness version that defines the new
 	// taproot verification logic.
 	TaprootWitnessVersion = 1
+
+	// MwebHogAddrWitnessVersion is the witness version of MWEB witness
+	// programs for HogAddr outputs.
+	MwebHogAddrWitnessVersion = 8
+
+	// MwebPeginWitnessVersion is the witness version of MWEB witness
+	// programs for peg-in transactions.
+	MwebPeginWitnessVersion = 9
 )
 
 // halforder is used to tame ECDSA malleability (see BIP0062).

@@ -12,7 +12,7 @@ The functions are only exported while the tests are being run.
 package ffldb
 
 import (
-	"github.com/ltcsuite/ltcd/database"
+	"github.com/ltcmweb/ltcd/database"
 )
 
 // TstRunWithMaxBlockFileSize runs the passed function with the maximum allowed

@@ -11,9 +11,9 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/ltcsuite/ltcd/blockchain"
-	"github.com/ltcsuite/ltcd/database"
-	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/blockchain"
+	"github.com/ltcmweb/ltcd/database"
+	"github.com/ltcmweb/ltcd/ltcutil"
 )
 
 var (

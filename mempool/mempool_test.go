@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ltcsuite/ltcd/blockchain"
-	"github.com/ltcsuite/ltcd/btcec/v2"
-	"github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/txscript"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/blockchain"
+	"github.com/ltcmweb/ltcd/btcec/v2"
+	"github.com/ltcmweb/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // fakeChain is used by the pool harness to provide generated test utxos and

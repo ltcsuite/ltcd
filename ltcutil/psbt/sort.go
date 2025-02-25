@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"sort"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 )
 
 // InPlaceSort modifies the passed packet's wire TX inputs and outputs to be

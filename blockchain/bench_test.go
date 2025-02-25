@@ -7,8 +7,8 @@ package blockchain
 import (
 	"testing"
 
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // BenchmarkIsCoinBase performs a simple benchmark against the IsCoinBase

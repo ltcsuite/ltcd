@@ -47,7 +47,7 @@ implement and the API is not stable yet.
 ## Installation
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/rpcclient
+$ go get -u github.com/ltcmweb/ltcd/rpcclient
 ```
 
 ## License

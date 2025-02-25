@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/database"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/database"
 )
 
 // blockRegionCmd defines the configuration options for the fetchblockregion

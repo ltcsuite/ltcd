@@ -23,7 +23,7 @@ via an RPC interface.
 ## Installation
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/blockchain/indexers
+$ go get -u github.com/ltcmweb/ltcd/blockchain/indexers
 ```
 
 ## License

@@ -7,7 +7,7 @@ package bloom_test
 import (
 	"testing"
 
-	"github.com/ltcsuite/ltcd/ltcutil/bloom"
+	"github.com/ltcmweb/ltcd/ltcutil/bloom"
 )
 
 // TestMurmurHash3 ensure the MurmurHash3 function produces the correct hash

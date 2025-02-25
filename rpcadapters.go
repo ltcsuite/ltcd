@@ -7,13 +7,13 @@ package main
 import (
 	"sync/atomic"
 
-	"github.com/ltcsuite/ltcd/blockchain"
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/mempool"
-	"github.com/ltcsuite/ltcd/netsync"
-	"github.com/ltcsuite/ltcd/peer"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/blockchain"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/mempool"
+	"github.com/ltcmweb/ltcd/netsync"
+	"github.com/ltcmweb/ltcd/peer"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // rpcPeer provides a peer for use with the RPC server and implements the
