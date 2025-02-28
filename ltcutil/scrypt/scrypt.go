@@ -1,16 +1,19 @@
 package scrypt
 
-// void scrypt_aux(unsigned char*);
-import "C"
+type Hash struct{ Key, Val []byte }
 
-import (
-	"crypto/sha256"
-
-	"golang.org/x/crypto/pbkdf2"
-)
+var cache map[string][]byte
 
 func Scrypt(x []byte) []byte {
-	X := pbkdf2.Key(x, x, 1, 128, sha256.New)
-	C.scrypt_aux((*C.uchar)(&X[0]))
-	return pbkdf2.Key(x, X, 1, 32, sha256.New)
+	if x, ok := cache[string(x)]; ok {
+		return x
+	}
+	return scrypt(x)
+}
+
+func SetCache(hashes []Hash) {
+	cache = map[string][]byte{}
+	for _, hash := range hashes {
+		cache[string(hash.Key)] = hash.Val
+	}
 }
