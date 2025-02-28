@@ -13,7 +13,7 @@ demonstrate clean shutdown.
 The first step is to use `go get` to download and install the rpcclient package:
 
 ```bash
-$ go get github.com/ltcsuite/ltcd/rpcclient
+$ go get github.com/ltcmweb/ltcd/rpcclient
 ```
 
 Next, modify the `main.go` source to specify the correct RPC username and

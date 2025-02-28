@@ -14,7 +14,7 @@ report.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/ltcutil/bloom
+$ go get -u github.com/ltcmweb/ltcd/ltcutil/bloom
 ```
 
 ## Examples

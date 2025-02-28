@@ -12,8 +12,8 @@ import (
 	"io"
 	"sort"
 
-	"github.com/ltcsuite/ltcd/txscript"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // WriteTxWitness is a utility function due to non-exported witness

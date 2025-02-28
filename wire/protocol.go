@@ -58,6 +58,10 @@ const (
 	// new messages that occur during the version-verack handshake will not
 	// come with a protocol version bump.
 	AddrV2Version uint32 = 70016
+
+	// MwebLightClientVersion is the protocol version which added four new messages.
+	// These are getmwebutxos, mwebutxos, mwebheader and mwebleafset.
+	MwebLightClientVersion uint32 = 70017
 )
 
 // ServiceFlag identifies services supported by a litecoin peer.
@@ -87,19 +91,24 @@ const (
 	// the last 288 blocks.
 	SFNodeNetworkLimited = 1 << 10
 
-	// SFNodeMWEB is a flag used to indicate a peer support MWEB blocks
+	// SFNodeMWEBLightClient is a flag used to indicate a peer supports
+	// serving MWEB light client data.
+	SFNodeMWEBLightClient = 1 << 23
+
+	// SFNodeMWEB is a flag used to indicate a peer support MWEB blocks.
 	SFNodeMWEB = 1 << 24
 )
 
 // Map of service flags back to their constant names for pretty printing.
 var sfStrings = map[ServiceFlag]string{
-	SFNodeNetwork:        "SFNodeNetwork",
-	SFNodeGetUTXO:        "SFNodeGetUTXO",
-	SFNodeBloom:          "SFNodeBloom",
-	SFNodeWitness:        "SFNodeWitness",
-	SFNodeCF:             "SFNodeCF",
-	SFNodeNetworkLimited: "SFNodeNetworkLimited",
-	SFNodeMWEB:           "SFNodeMWEB",
+	SFNodeNetwork:         "SFNodeNetwork",
+	SFNodeGetUTXO:         "SFNodeGetUTXO",
+	SFNodeBloom:           "SFNodeBloom",
+	SFNodeWitness:         "SFNodeWitness",
+	SFNodeCF:              "SFNodeCF",
+	SFNodeNetworkLimited:  "SFNodeNetworkLimited",
+	SFNodeMWEBLightClient: "SFNodeMWEBLightClient",
+	SFNodeMWEB:            "SFNodeMWEB",
 }
 
 // orderedSFStrings is an ordered list of service flags from highest to
@@ -111,6 +120,7 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeWitness,
 	SFNodeCF,
 	SFNodeNetworkLimited,
+	SFNodeMWEBLightClient,
 	SFNodeMWEB,
 }
 

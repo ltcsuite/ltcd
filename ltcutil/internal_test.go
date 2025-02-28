@@ -12,9 +12,9 @@ interface. The functions are only exported while the tests are being run.
 package ltcutil
 
 import (
-	"github.com/ltcsuite/ltcd/btcec/v2"
-	"github.com/ltcsuite/ltcd/ltcutil/base58"
-	"github.com/ltcsuite/ltcd/ltcutil/bech32"
+	"github.com/ltcmweb/ltcd/btcec/v2"
+	"github.com/ltcmweb/ltcd/ltcutil/base58"
+	"github.com/ltcmweb/ltcd/ltcutil/bech32"
 	"golang.org/x/crypto/ripemd160"
 )
 

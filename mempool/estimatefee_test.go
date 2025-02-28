@@ -9,10 +9,10 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/mining"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/mining"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // newTestFeeEstimator creates a feeEstimator with some different parameters

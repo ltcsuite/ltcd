@@ -19,7 +19,7 @@ provided.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/ltcutil
+$ go get -u github.com/ltcmweb/ltcd/ltcutil
 ```
 
 ## GPG Verification Key

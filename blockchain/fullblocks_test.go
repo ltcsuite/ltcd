@@ -10,12 +10,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ltcsuite/ltcd/blockchain"
-	"github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/ltcsuite/ltcd/database"
-	_ "github.com/ltcsuite/ltcd/database/ffldb"
-	"github.com/ltcsuite/ltcd/txscript"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/blockchain"
+	"github.com/ltcmweb/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/database"
+	_ "github.com/ltcmweb/ltcd/database/ffldb"
+	"github.com/ltcmweb/ltcd/txscript"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 const (

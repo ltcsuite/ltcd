@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	secp_ecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcmweb/ltcd/chaincfg"
 )
 
 // TestBIP0032Vectors tests the vectors provided by [BIP32] to ensure the

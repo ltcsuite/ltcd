@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // Bip16Activation is the timestamp where BIP0016 is valid to use in the
@@ -105,6 +105,11 @@ func IsWitnessProgram(script []byte) bool {
 func IsNullData(script []byte) bool {
 	const scriptVersion = 0
 	return isNullDataScript(scriptVersion, script)
+}
+
+// IsMweb returns true if the script encodes an MWEB address, false otherwise.
+func IsMweb(script []byte) bool {
+	return isMwebScript(script)
 }
 
 // ExtractWitnessProgramInfo attempts to extract the witness program version,
@@ -519,6 +524,8 @@ func IsUnspendable(pkScript []byte) bool {
 		return true
 	case len(pkScript) > MaxScriptSize:
 		return true
+	case IsMweb(pkScript):
+		return false
 	}
 
 	// The script is unspendable if it is guaranteed to fail at execution.

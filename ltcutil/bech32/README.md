@@ -13,7 +13,7 @@ Test vectors from BIP 173 are added to ensure compatibility with the BIP.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/ltcutil/bech32
+$ go get -u github.com/ltcmweb/ltcd/ltcutil/bech32
 ```
 
 ## Examples

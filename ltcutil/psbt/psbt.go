@@ -13,8 +13,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/ltcsuite/ltcd/ltcutil"
-	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcmweb/ltcd/ltcutil"
+	"github.com/ltcmweb/ltcd/wire"
 )
 
 // psbtMagicLength is the length of the magic bytes used to signal the start of

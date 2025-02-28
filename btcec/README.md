@@ -20,7 +20,7 @@ use secp256k1 elliptic curve cryptography.
 ## Installation and Updating
 
 ```bash
-$ go install -u -v github.com/ltcsuite/ltcd/btcec/v2
+$ go install -u -v github.com/ltcmweb/ltcd/btcec/v2
 ```
 
 ## Examples

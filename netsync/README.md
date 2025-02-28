@@ -17,7 +17,7 @@ longest chain the sync peer is aware of.
 ## Installation and Updating
 
 ```bash
-$ go get -u github.com/ltcsuite/ltcd/netsync
+$ go get -u github.com/ltcmweb/ltcd/netsync
 ```
 
 ## License

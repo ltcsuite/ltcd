@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
 )
 
 // sigCacheEntry represents an entry in the SigCache. Entries within the
