@@ -157,9 +157,8 @@ func createOutputs(recipients []*Recipient, randFunc RandFunc) (
 	outputs []*wire.MwebOutput, coins []*Coin,
 	totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
 
-	var ephemeralKey mw.SecretKey
-
 	for _, recipient := range recipients {
+		var ephemeralKey mw.SecretKey
 		if err := randFunc(ephemeralKey[:]); err != nil {
 			panic(err)
 		}
