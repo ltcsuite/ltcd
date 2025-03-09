@@ -148,11 +148,6 @@ func CreateInput(coin *Coin, inputKey *mw.SecretKey) *wire.MwebInput {
 	}
 }
 
-type Recipient struct {
-	Value   uint64
-	Address *mw.StealthAddress
-}
-
 func createOutputs(recipients []*Recipient, randFunc RandFunc) (
 	outputs []*wire.MwebOutput, coins []*Coin,
 	totalBlind mw.BlindingFactor, totalKey mw.SecretKey) {
@@ -184,9 +179,10 @@ func CreateOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	output *wire.MwebOutput, blind *mw.BlindingFactor, shared *mw.SecretKey) {
 
 	// Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
-	n := new(big.Int).SetBytes(mw.Hashed(mw.HashTagNonce, senderKey[:])[:16])
+	var nonce [16]byte
+	copy(nonce[:], mw.Hashed(mw.HashTagNonce, senderKey[:])[:])
 
-	output, blind, shared = CreateOutput2(recipient, n)
+	output, blind, shared = createOutputWithNonce(recipient, nonce)
 
 	// Calculate the ephemeral send pubkey 'Ks' = ks*G
 	output.SenderPubKey = *senderKey.PubKey()
@@ -194,7 +190,7 @@ func CreateOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	return
 }
 
-func CreateOutput2(recipient *Recipient, n *big.Int) (
+func createOutputWithNonce(recipient *Recipient, nonce [16]byte) (
 	*wire.MwebOutput, *mw.BlindingFactor, *mw.SecretKey) {
 
 	// We only support standard feature fields for now
@@ -206,7 +202,7 @@ func CreateOutput2(recipient *Recipient, n *big.Int) (
 	h.Write(recipient.Address.A()[:])
 	h.Write(recipient.Address.B()[:])
 	binary.Write(h, binary.LittleEndian, recipient.Value)
-	h.Write(n.FillBytes(make([]byte, 16)))
+	h.Write(nonce[:])
 	s := (*mw.SecretKey)(h.Sum(nil))
 
 	// Derive shared secret 't' = H(T_derive, s*A)
@@ -223,7 +219,7 @@ func CreateOutput2(recipient *Recipient, n *big.Int) (
 	mask := mw.OutputMaskFromShared(t)
 	blind := mw.BlindSwitch(mask.Blind, recipient.Value)
 	mv := mask.MaskValue(recipient.Value)
-	mn := mask.MaskNonce(n)
+	mn := mask.MaskNonce(new(big.Int).SetBytes(nonce[:]))
 
 	// Commitment 'C' = r*G + v*H
 	outputCommit := mw.NewCommitment(blind, recipient.Value)
@@ -256,17 +252,7 @@ func SignOutput(output *wire.MwebOutput, value uint64,
 	output.RangeProof = &rangeProof
 	output.RangeProofHash = blake3.Sum256(rangeProof[:])
 
-	SignOutput2(output, senderKey)
-}
-
-func SignOutput2(output *wire.MwebOutput, senderKey *mw.SecretKey) {
-	h := blake3.New(32, nil)
-	h.Write(output.Commitment[:])
-	h.Write(output.SenderPubKey[:])
-	h.Write(output.ReceiverPubKey[:])
-	h.Write(output.Message.Hash()[:])
-	h.Write(output.RangeProofHash[:])
-	output.Signature = mw.Sign(senderKey, h.Sum(nil))
+	output.Signature = mw.Sign(senderKey, output.SigMsg())
 }
 
 func CreateKernel(blind, stealthBlind *mw.BlindingFactor,

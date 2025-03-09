@@ -232,20 +232,16 @@ func (mo *MwebOutput) Deserialize(r io.Reader) error {
 	return mo.read(r, 0, false)
 }
 
-func (mo *MwebOutput) SerializeCompact(w io.Writer) error {
-	return mo.write(w, 0, true, false)
-}
-
-func (mo *MwebOutput) DeserializeCompact(r io.Reader) error {
-	return mo.read(r, 0, true)
-}
-
-func (mo *MwebOutput) VerifySig() bool {
+func (mo *MwebOutput) SigMsg() []byte {
 	h := blake3.New(32, nil)
 	h.Write(mo.Commitment[:])
 	h.Write(mo.SenderPubKey[:])
 	h.Write(mo.ReceiverPubKey[:])
 	h.Write(mo.Message.Hash()[:])
 	h.Write(mo.RangeProofHash[:])
-	return mo.Signature.Verify(&mo.SenderPubKey, h.Sum(nil))
+	return h.Sum(nil)
+}
+
+func (mo *MwebOutput) VerifySig() bool {
+	return mo.Signature.Verify(&mo.SenderPubKey, mo.SigMsg())
 }

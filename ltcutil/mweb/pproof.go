@@ -1,84 +1,49 @@
 package mweb
 
 import (
-	"bytes"
-	"encoding/hex"
 	"errors"
-	"math/big"
 
-	"github.com/ltcmweb/ltcd/chaincfg"
 	"github.com/ltcmweb/ltcd/chaincfg/chainhash"
-	"github.com/ltcmweb/ltcd/ltcutil"
 	"github.com/ltcmweb/ltcd/ltcutil/mweb/mw"
-	"github.com/ltcmweb/ltcd/wire"
 )
 
 type PaymentProof struct {
-	Output    []byte
-	OutputId  string
-	Address   string
-	Value     uint64
-	Nonce     []byte
-	Signature mw.Signature
+	Nonce           [16]byte
+	SenderPubKey    mw.PublicKey
+	RangeProofHash  chainhash.Hash
+	OutputSignature mw.Signature
+	NonceSignature  mw.Signature
 }
 
-func NewPaymentProof(address string, value uint64, senderKey *mw.SecretKey,
-	rangeProofHash chainhash.Hash) (*PaymentProof, error) {
+func NewPaymentProof(recipient *Recipient, senderKey *mw.SecretKey,
+	rangeProofHash chainhash.Hash) *PaymentProof {
 
-	addr, err := ltcutil.DecodeAddress(address, &chaincfg.MainNetParams)
-	if err != nil {
-		return nil, err
-	}
-
-	output, _, _ := CreateOutput(&Recipient{
-		Address: addr.(*ltcutil.AddressMweb).StealthAddress(),
-		Value:   value,
-	}, senderKey)
+	var nonce [16]byte
+	copy(nonce[:], mw.Hashed(mw.HashTagNonce, senderKey[:])[:])
+	output, _, _ := CreateOutput(recipient, senderKey)
 	output.RangeProofHash = rangeProofHash
-	SignOutput2(output, senderKey)
-
-	var buf bytes.Buffer
-	output.SerializeCompact(&buf)
-	nonce := mw.Hashed(mw.HashTagNonce, senderKey[:])[:16]
 
 	return &PaymentProof{
-		Output:    buf.Bytes(),
-		OutputId:  hex.EncodeToString(output.Hash()[:]),
-		Address:   address,
-		Value:     value,
-		Nonce:     nonce,
-		Signature: mw.Sign(senderKey, nonce),
-	}, nil
+		Nonce:           nonce,
+		SenderPubKey:    output.SenderPubKey,
+		RangeProofHash:  rangeProofHash,
+		OutputSignature: mw.Sign(senderKey, output.SigMsg()),
+		NonceSignature:  mw.Sign(senderKey, nonce[:]),
+	}
 }
 
-func (pp *PaymentProof) Verify() error {
-	addr, err := ltcutil.DecodeAddress(pp.Address, &chaincfg.MainNetParams)
-	if err != nil {
-		return err
+func (pp *PaymentProof) Verify(recipient *Recipient) (*chainhash.Hash, error) {
+	output, _, _ := createOutputWithNonce(recipient, pp.Nonce)
+	output.SenderPubKey = pp.SenderPubKey
+	output.RangeProofHash = pp.RangeProofHash
+	output.Signature = pp.OutputSignature
+
+	if !output.VerifySig() {
+		return nil, errors.New("output signature invalid")
+	}
+	if !pp.NonceSignature.Verify(&pp.SenderPubKey, pp.Nonce[:]) {
+		return nil, errors.New("nonce signature invalid")
 	}
 
-	var output wire.MwebOutput
-	if err = output.DeserializeCompact(bytes.NewReader(pp.Output)); err != nil {
-		return err
-	}
-	if hex.EncodeToString(output.Hash()[:]) != pp.OutputId {
-		return errors.New("output id mismatch")
-	}
-
-	output2, _, _ := CreateOutput2(&Recipient{
-		Address: addr.(*ltcutil.AddressMweb).StealthAddress(),
-		Value:   pp.Value,
-	}, new(big.Int).SetBytes(pp.Nonce))
-	output2.SenderPubKey = output.SenderPubKey
-	output2.RangeProofHash = output.RangeProofHash
-	output2.Signature = output.Signature
-
-	if *output2.Hash() != *output.Hash() {
-		return errors.New("output id mismatch")
-	}
-	if !pp.Signature.Verify(&output.SenderPubKey, pp.Nonce) {
-		return errors.New("sender key signature invalid")
-	}
-
-	return nil
+	return output.Hash(), nil
 }
