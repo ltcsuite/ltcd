@@ -232,6 +232,14 @@ func (mo *MwebOutput) Deserialize(r io.Reader) error {
 	return mo.read(r, 0, false)
 }
 
+func (mo *MwebOutput) SerializeCompact(w io.Writer) error {
+	return mo.write(w, 0, true, false)
+}
+
+func (mo *MwebOutput) DeserializeCompact(r io.Reader) error {
+	return mo.read(r, 0, true)
+}
+
 func (mo *MwebOutput) VerifySig() bool {
 	h := blake3.New(32, nil)
 	h.Write(mo.Commitment[:])

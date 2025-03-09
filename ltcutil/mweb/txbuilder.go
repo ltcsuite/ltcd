@@ -181,13 +181,24 @@ func createOutputs(recipients []*Recipient, randFunc RandFunc) (
 }
 
 func CreateOutput(recipient *Recipient, senderKey *mw.SecretKey) (
+	output *wire.MwebOutput, blind *mw.BlindingFactor, shared *mw.SecretKey) {
+
+	// Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
+	n := new(big.Int).SetBytes(mw.Hashed(mw.HashTagNonce, senderKey[:])[:16])
+
+	output, blind, shared = CreateOutput2(recipient, n)
+
+	// Calculate the ephemeral send pubkey 'Ks' = ks*G
+	output.SenderPubKey = *senderKey.PubKey()
+
+	return
+}
+
+func CreateOutput2(recipient *Recipient, n *big.Int) (
 	*wire.MwebOutput, *mw.BlindingFactor, *mw.SecretKey) {
 
 	// We only support standard feature fields for now
 	features := wire.MwebOutputMessageStandardFieldsFeatureBit
-
-	// Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
-	n := new(big.Int).SetBytes(mw.Hashed(mw.HashTagNonce, senderKey[:])[:16])
 
 	// Calculate unique sending key 's' = H(T_send, A, B, v, n)
 	h := blake3.New(32, nil)
@@ -217,15 +228,11 @@ func CreateOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 	// Commitment 'C' = r*G + v*H
 	outputCommit := mw.NewCommitment(blind, recipient.Value)
 
-	// Calculate the ephemeral send pubkey 'Ks' = ks*G
-	Ks := senderKey.PubKey()
-
 	// Derive view tag as first byte of H(T_tag, sA)
 	viewTag := mw.Hashed(mw.HashTagTag, sA[:])[0]
 
 	return &wire.MwebOutput{
 		Commitment:     *outputCommit,
-		SenderPubKey:   *Ks,
 		ReceiverPubKey: *Ko,
 		Message: wire.MwebOutputMessage{
 			Features:          features,
@@ -249,6 +256,10 @@ func SignOutput(output *wire.MwebOutput, value uint64,
 	output.RangeProof = &rangeProof
 	output.RangeProofHash = blake3.Sum256(rangeProof[:])
 
+	SignOutput2(output, senderKey)
+}
+
+func SignOutput2(output *wire.MwebOutput, senderKey *mw.SecretKey) {
 	h := blake3.New(32, nil)
 	h.Write(output.Commitment[:])
 	h.Write(output.SenderPubKey[:])
