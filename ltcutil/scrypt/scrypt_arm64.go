@@ -13,12 +13,12 @@ var pool = sync.Pool{New: func() interface{} {
 	return &scratch{}
 }}
 
-func Scrypt(x []byte) []byte {
+func scrypt(x []byte) []byte {
 	X := pbkdf2.Key(x, x, 1, 128, sha256.New)
 	V := pool.Get().(*scratch)
-	scrypt(&X[0], V)
+	scryptAsm(&X[0], V)
 	pool.Put(V)
 	return pbkdf2.Key(x, X, 1, 32, sha256.New)
 }
 
-func scrypt(X *byte, V *scratch)
+func scryptAsm(X *byte, V *scratch)

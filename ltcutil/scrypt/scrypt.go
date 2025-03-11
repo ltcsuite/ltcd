@@ -1,10 +1,19 @@
-//go:build !arm64
-
 package scrypt
 
-import scrypt2 "golang.org/x/crypto/scrypt"
+type Hash struct{ Key, Val []byte }
+
+var cache map[string][]byte
 
 func Scrypt(x []byte) []byte {
-	x, _ = scrypt2.Key(x, x, 1024, 1, 1, 32)
-	return x
+	if x, ok := cache[string(x)]; ok {
+		return x
+	}
+	return scrypt(x)
+}
+
+func SetCache(hashes []Hash) {
+	cache = map[string][]byte{}
+	for _, hash := range hashes {
+		cache[string(hash.Key)] = hash.Val
+	}
 }
