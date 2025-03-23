@@ -30,6 +30,15 @@ const (
 	// extended public key.
 	XpubType GlobalType = 1
 
+	TxVersionType           GlobalType = 2
+	FallbackLockTimeType    GlobalType = 3
+	InputCountType          GlobalType = 4
+	OutputCountType         GlobalType = 5
+	TxModifiableType        GlobalType = 6
+	MwebTxOffsetType        GlobalType = 0x90
+	MwebTxStealthOffsetType GlobalType = 0x91
+	MwebKernelCountType     GlobalType = 0x92
+
 	// VersionType houses the global version number of this PSBT. There is
 	// no key (only contains the byte type), then the value if omitted, is
 	// assumed to be zero.
@@ -151,6 +160,18 @@ const (
 	// 32-byte hash denoting the root hash of a merkle tree of scripts.
 	TaprootMerkleRootType InputType = 0x18
 
+	MwebSpentOutputIdType     InputType = 0x90
+	MwebSpentOutputCommitType InputType = 0x91
+	MwebSpentOutputPubKeyType InputType = 0x92
+	MwebInputPubKeyType       InputType = 0x93
+	MwebInputFeaturesType     InputType = 0x94
+	MwebInputSignatureType    InputType = 0x95
+	MwebAddressIndexType      InputType = 0x96
+	MwebInputAmountType       InputType = 0x97
+	MwebSharedSecretType      InputType = 0x98
+	MwebSpentOutputBlindType  InputType = 0x99
+	MwebInputExtraDataType    InputType = 0x9A
+
 	// ProprietaryInputType is a custom type for use by devs.
 	//
 	// The key ({0xFC}|<prefix>|{subtype}|{key data}), is a Variable length
@@ -200,4 +221,28 @@ const (
 	// followed by said number of 32-byte leaf hashes. The rest of the value
 	// is then identical to the Bip32DerivationInputType value.
 	TaprootBip32DerivationOutputType OutputType = 7
+
+	MwebStealthAddressOutputType OutputType = 0x90
+	MwebCommitOutputType         OutputType = 0x91
+	MwebFeaturesOutputType       OutputType = 0x92
+	MwebSenderPubKeyOutputType   OutputType = 0x93
+	MwebOutputPubKeyOutputType   OutputType = 0x94
+	MwebStandardFieldsOutputType OutputType = 0x95
+	MwebRangeProofOutputType     OutputType = 0x96
+	MwebSignatureOutputType      OutputType = 0x97
+	MwebExtraDataOutputType      OutputType = 0x98
+)
+
+// KernelType is the set of types defined per MWEB kernel within the PSBT.
+type KernelType uint32
+
+const (
+	MwebKernelExcessCommitType  KernelType = 0
+	MwebKernelStealthCommitType KernelType = 1
+	MwebKernelFeeType           KernelType = 2
+	MwebKernelPeginAmountType   KernelType = 3
+	MwebKernelPegoutType        KernelType = 4
+	MwebKernelLockHeightType    KernelType = 5
+	MwebKernelExtraDataType     KernelType = 6
+	MwebKernelSignatureType     KernelType = 7
 )
