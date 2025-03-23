@@ -61,3 +61,15 @@ func (c *Commitment) PubKey() *PublicKey {
 	Q.Z.SetInt(1)
 	return toPubKey(&Q)
 }
+
+func ReadCommitment(bytes []byte) *Commitment {
+	if len(bytes) < 33 {
+		return nil
+	}
+
+	// TODO: Check if valid format
+
+	commitment := new(Commitment)
+	copy(commitment[:], bytes[0:33])
+	return commitment
+}

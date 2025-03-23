@@ -226,7 +226,7 @@ func serializeKVPairWithType(w io.Writer, kt uint8, keydata []byte,
 
 // getKey retrieves a single key - both the key type and the keydata (if
 // present) from the stream and returns the key type as an integer, or -1 if
-// the key was of zero length. This integer is is used to indicate the presence
+// the key was of zero length. This integer is used to indicate the presence
 // of a separator byte which indicates the end of a given key-value pair list,
 // and the keydata as a byte slice or nil if none is present.
 func getKey(r io.Reader) (int, []byte, error) {
@@ -255,7 +255,7 @@ func getKey(r io.Reader) (int, []byte, error) {
 		return -1, nil, err
 	}
 
-	keyType := int(string(keyTypeAndData)[0])
+	keyType := int(keyTypeAndData[0]) // TODO: BIP-0174 calls for this to be a compact size instead. I'm too lazy to change it
 
 	// Note that the second return value will usually be empty, since most
 	// keys contain no more than the key type byte.
@@ -266,7 +266,40 @@ func getKey(r io.Reader) (int, []byte, error) {
 	// Otherwise, we return the key, along with any data that it may
 	// contain.
 	return keyType, keyTypeAndData[1:], nil
+}
 
+type keyValuePair struct {
+	keyType   uint8
+	keyData   []byte
+	valueData []byte
+}
+
+// Returns a keyValuePair, defined by BIP-0174 as <keypair>.
+// A separator will be returned as a nil keyValuePair and error.
+// <keypair> := <key> <value>
+// <key> := <keylen> <keytype> <keydata>
+// <value> := <valuelen> <valuedata>
+func getKVPair(r io.Reader) (*keyValuePair, error) {
+	keyType, keyData, err := getKey(r)
+	if err != nil {
+		return nil, err
+	}
+	if keyType == -1 {
+		return nil, nil
+	}
+
+	value, err := wire.ReadVarBytes(
+		r, 0, MaxPsbtValueLength, "PSBT value",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keyValuePair{
+		keyType:   uint8(keyType),
+		keyData:   keyData,
+		valueData: value,
+	}, nil
 }
 
 // readTxOut is a limited version of wire.ReadTxOut, because the latter is not
@@ -277,7 +310,7 @@ func readTxOut(txout []byte) (*wire.TxOut, error) {
 	}
 
 	valueSer := binary.LittleEndian.Uint64(txout[:8])
-	scriptPubKey := txout[9:]
+	scriptPubKey := txout[9:] // TODO: This should probably call ReadVarBytes to avoid reading too far
 
 	return wire.NewTxOut(int64(valueSer), scriptPubKey), nil
 }
@@ -468,4 +501,37 @@ func FindLeafScript(pInput *PInput,
 
 	return nil, fmt.Errorf("leaf script for target leaf hash %x not "+
 		"found in input", targetLeafHash)
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
+}
+
+func uint32Ptr(v uint32) *uint32 {
+	return &v
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+type keySet struct {
+	seen map[string]struct{}
+}
+
+func newKeySet() *keySet {
+	return &keySet{
+		seen: make(map[string]struct{}),
+	}
+}
+
+func (ks *keySet) addKey(keyType uint8, keyData []byte) bool {
+	fullKey := append([]byte{keyType}, keyData...) // reconstruct original key
+	keyStr := string(fullKey)
+
+	if _, exists := ks.seen[keyStr]; exists {
+		return false
+	}
+	ks.seen[keyStr] = struct{}{}
+	return true
 }
