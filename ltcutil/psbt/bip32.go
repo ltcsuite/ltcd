@@ -5,6 +5,9 @@ import (
 	"encoding/binary"
 )
 
+const BIP32_EXTKEY_SIZE = 74
+const BIP32_EXTKEY_WITH_VERSION_SIZE = 78
+
 // Bip32Derivation encapsulates the data for the input and output
 // Bip32Derivation key-value fields.
 //
