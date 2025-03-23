@@ -19,7 +19,7 @@ func TestServiceFlagStringer(t *testing.T) {
 		{SFNodeWitness, "SFNodeWitness"},
 		{SFNodeCF, "SFNodeCF"},
 		{SFNodeNetworkLimited, "SFNodeNetworkLimited"},
-		{0xffffffff, "SFNodeNetwork|SFNodeGetUTXO|SFNodeBloom|SFNodeWitness|SFNodeCF|SFNodeNetworkLimited|SFNodeMWEB|SFNodeMWEBLightClient|0xfcfffbb0"},
+		{0xffffffff, "SFNodeNetwork|SFNodeGetUTXO|SFNodeBloom|SFNodeWitness|SFNodeCF|SFNodeNetworkLimited|SFNodeMWEBLightClient|SFNodeMWEB|0xfe7ffbb0"},
 	}
 
 	t.Logf("Running %d tests", len(tests))
