@@ -40,3 +40,13 @@ func BlindSwitch(blind *BlindingFactor, value uint64) *BlindingFactor {
 	h.Write(generatorJ.mul(blind.scalar())[:])
 	return (*BlindingFactor)(h.Sum(nil)).Add(blind)
 }
+
+func ReadBlindingFactor(bytes []byte) *BlindingFactor {
+    if len(bytes) < 32 {
+        return nil
+    }
+
+    blindingFactor := new(BlindingFactor)
+    copy(blindingFactor[:], bytes[0:32])
+    return blindingFactor
+}

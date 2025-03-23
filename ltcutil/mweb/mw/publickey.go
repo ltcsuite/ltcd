@@ -39,3 +39,15 @@ func (pk *PublicKey) Mul(sk *SecretKey) *PublicKey {
 func (pk *PublicKey) Div(sk *SecretKey) *PublicKey {
 	return pk.mul(sk.scalar().InverseNonConst())
 }
+
+func ReadPublicKey(bytes []byte) *PublicKey {
+	if len(bytes) < 33 {
+		return nil
+	}
+
+	// TODO: Check if valid format
+
+	publicKey := new(PublicKey)
+	copy(publicKey[:], bytes[0:33])
+	return publicKey
+}

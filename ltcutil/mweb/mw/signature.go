@@ -31,3 +31,15 @@ func Sign(key *SecretKey, message []byte) (sig Signature) {
 	e.Add(k).PutBytesUnchecked(sig[32:])
 	return
 }
+
+func ReadSignature(bytes []byte) *Signature {
+	if len(bytes) < 64 {
+		return nil
+	}
+
+	// TODO: Check if valid format
+
+	signature := new(Signature)
+	copy(signature[:], bytes[0:64])
+	return signature
+}
