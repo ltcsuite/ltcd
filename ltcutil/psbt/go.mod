@@ -7,7 +7,7 @@ require (
 	github.com/ltcsuite/ltcd v0.23.5
 	github.com/ltcsuite/ltcd/btcec/v2 v2.3.2
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2
-	github.com/ltcsuite/ltcd/ltcutil v1.1.3
+	github.com/ltcsuite/ltcd/ltcutil v1.1.4-0.20240325211356-491681cb5556
 	github.com/stretchr/testify v1.8.3
 )
 
@@ -26,3 +26,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
+
+replace github.com/ltcsuite/ltcd => ../..
+
+replace github.com/ltcsuite/ltcd/ltcutil => ../
