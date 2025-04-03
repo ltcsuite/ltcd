@@ -12,6 +12,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil/hdkeychain"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"io"
 
@@ -105,7 +107,23 @@ var (
 	// script witness given is not supported by this codebase, or is
 	// otherwise not valid.
 	ErrUnsupportedScriptType = errors.New("Unsupported script type")
+
+	ErrUnsupportedFieldInPsbtVersion = errors.New("Unsupported field for specified psbt version")
 )
+
+type TxModifiableFlag byte
+
+const (
+	InputsModifiableFlag TxModifiableFlag = 1 << iota
+	OutputsModifiableFlag
+	HasSighashSingleModifiableFlag
+)
+
+type GlobalExtPubKey struct {
+	ExtKey      *hdkeychain.ExtendedKey
+	Fingerprint uint32
+	Path        []uint32
+}
 
 // Unknown is a struct encapsulating a key-value pair for which the key type is
 // unknown by this package; these fields are allowed in both the 'Global' and
@@ -123,13 +141,25 @@ type Packet struct {
 	// The PSBT version (Currently support 0 and 2)
 	PsbtVersion uint32
 
+	// UnsignedTx is the decoded unsigned transaction for this PSBT.
+	// Only used for PSBTv0 (can be nil for v2)
+	UnsignedTx *wire.MsgTx // Deserialization of unsigned tx
+
+	// PSBTv2: The transaction version
+	TxVersion int32
+
+	// PSBTv2: The fallback locktime for inputs that don't specify locktime
+	FallbackLocktime *uint32
+
+	ExtPubKeys []*GlobalExtPubKey
+
+	// Bitfield that indicates which fields can be added or removed
+	TxModifiableFlag *TxModifiableFlag
+
 	// PSBTv2: The MWEB transaction offset and stealth offset.
 	// Will only be populated for signed MWEB transactions.
 	MwebTxOffset      *mw.BlindingFactor
 	MwebStealthOffset *mw.BlindingFactor
-
-	// UnsignedTx is the decoded unsigned transaction for this PSBT.
-	UnsignedTx *wire.MsgTx // Deserialization of unsigned tx
 
 	// Inputs contains all the information needed to properly sign this
 	// target input within the above transaction.
@@ -167,17 +197,49 @@ func NewFromUnsignedTx(tx *wire.MsgTx) (*Packet, error) {
 		return nil, ErrInvalidRawTxSigned
 	}
 
-	inSlice := make([]PInput, len(tx.TxIn))
-	outSlice := make([]POutput, len(tx.TxOut))
+	numInputs := len(tx.TxIn)
+	numOutputs := len(tx.TxOut)
+	numKernels := 0
+	var mwebKernelOffset *mw.BlindingFactor = nil
+	var mwebStealthOffset *mw.BlindingFactor = nil
+	//if tx.Mweb != nil {
+	//	numInputs += len(tx.Mweb.TxBody.Inputs)
+	//	numOutputs += len(tx.Mweb.TxBody.Outputs)
+	//	numKernels += len(tx.Mweb.TxBody.Kernels)
+	//	mwebKernelOffset = &tx.Mweb.KernelOffset
+	//	mwebStealthOffset = &tx.Mweb.StealthOffset
+	//}
+	inSlice := make([]PInput, numInputs)
+	outSlice := make([]POutput, numOutputs)
+	kernSlice := make([]PKernel, numKernels)
 	unknownSlice := make([]*Unknown, 0)
 
 	return &Packet{
-		UnsignedTx: tx,
-		Inputs:     inSlice,
-		Outputs:    outSlice,
-		Unknowns:   unknownSlice,
+		PsbtVersion:       0,
+		UnsignedTx:        tx,
+		MwebTxOffset:      mwebKernelOffset,
+		MwebStealthOffset: mwebStealthOffset,
+		TxVersion:         tx.Version,
+		FallbackLocktime:  &tx.LockTime,
+		Inputs:            inSlice,
+		Outputs:           outSlice,
+		Kernels:           kernSlice,
+		Unknowns:          unknownSlice,
 	}, nil
 }
+
+var (
+	illegalPsbtV0GlobalKeys = map[GlobalType]bool{
+		TxVersionType:           true,
+		FallbackLockTimeType:    true,
+		InputCountType:          true,
+		OutputCountType:         true,
+		TxModifiableType:        true,
+		MwebTxOffsetType:        true,
+		MwebTxStealthOffsetType: true,
+		MwebKernelCountType:     true,
+	}
+)
 
 // NewFromRawBytes returns a new instance of a Packet struct created by reading
 // from a byte slice. If the format is invalid, an error is returned. If the
@@ -208,9 +270,12 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 	var psbtVersion *uint32
 	var msgTx *wire.MsgTx
 	var txVersion *int32
+	var fallbackLockTime *uint32
 	var inputCount *int
 	var outputCount *int
 	var kernelCount *int
+	var extPubKeys []*GlobalExtPubKey
+	var txModifiableFlag *TxModifiableFlag
 	var txOffset *mw.BlindingFactor
 	var stealthOffset *mw.BlindingFactor
 
@@ -242,7 +307,8 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		}
 
 		psbtVersion = uint32Ptr(0)
-		txVersion = int32Ptr(msgTx.Version)
+		txVersion = &msgTx.Version
+		fallbackLockTime = uint32Ptr(msgTx.LockTime)
 		inputCount = intPtr(len(msgTx.TxIn))
 		outputCount = intPtr(len(msgTx.TxOut))
 		kernelCount = intPtr(0)
@@ -268,29 +334,45 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			return nil, ErrDuplicateKey
 		}
 
-		switch GlobalType(kvPair.keyType) {
+		globalType := GlobalType(kvPair.keyType)
+		if psbtVersion != nil && *psbtVersion == 0 && illegalPsbtV0GlobalKeys[globalType] {
+			return nil, ErrUnsupportedFieldInPsbtVersion
+		}
+
+		switch globalType {
 		case UnsignedTxType:
 			// UnsignedTxType should've already been parsed above
 			return nil, ErrInvalidPsbtFormat
 		case XpubType:
 			if len(kvPair.keyData) != BIP32_EXTKEY_WITH_VERSION_SIZE {
-				return nil, ErrInvalidPsbtFormat
+				return nil, ErrInvalidKeyData
 			}
-			// TODO: Parse Extended pubkey
+
+			extPubKey, err := readExtendedKey(kvPair.keyData)
+			if err != nil {
+				return nil, err
+			}
+
+			fingerprint, path, err := ReadBip32Derivation(kvPair.valueData)
+			if err != nil {
+				return nil, err
+			}
+
+			extPubKeys = append(extPubKeys, &GlobalExtPubKey{ExtKey: extPubKey, Fingerprint: fingerprint, Path: path})
 		case TxVersionType:
-			if psbtVersion != nil && *psbtVersion == 0 {
-				return nil, ErrInvalidPsbtFormat
-			}
 			if kvPair.keyData != nil || len(kvPair.valueData) != 4 {
 				return nil, ErrInvalidPsbtFormat
 			}
 
-			txVersion = int32Ptr(int32(binary.LittleEndian.Uint32(kvPair.valueData)))
-		//case FallbackLockTimeType:
-		case InputCountType:
-			if psbtVersion != nil && *psbtVersion == 0 {
+			parsedTxVersion := int32(binary.LittleEndian.Uint32(kvPair.valueData))
+			txVersion = &parsedTxVersion
+		case FallbackLockTimeType:
+			if kvPair.keyData != nil || len(kvPair.valueData) != 4 {
 				return nil, ErrInvalidPsbtFormat
 			}
+
+			fallbackLockTime = uint32Ptr(binary.LittleEndian.Uint32(kvPair.valueData))
+		case InputCountType:
 			if kvPair.keyData != nil || kvPair.valueData == nil {
 				return nil, ErrInvalidPsbtFormat
 			}
@@ -301,9 +383,6 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			}
 			inputCount = intPtr(int(value))
 		case OutputCountType:
-			if psbtVersion != nil && *psbtVersion == 0 {
-				return nil, ErrInvalidPsbtFormat
-			}
 			if kvPair.keyData != nil || kvPair.valueData == nil {
 				return nil, ErrInvalidPsbtFormat
 			}
@@ -313,7 +392,16 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 				return nil, err
 			}
 			outputCount = intPtr(int(value))
-		//case TxModifiableType:
+		case TxModifiableType:
+			if kvPair.keyData != nil {
+				return nil, ErrInvalidKeyData
+			}
+			if len(kvPair.valueData) != 1 {
+				return nil, ErrInvalidPsbtFormat
+			}
+
+			modifiableFlag := TxModifiableFlag(kvPair.valueData[0])
+			txModifiableFlag = &modifiableFlag
 		case MwebTxOffsetType:
 			if kvPair.keyData != nil || len(kvPair.valueData) != 32 {
 				return nil, ErrInvalidPsbtFormat
@@ -367,15 +455,11 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		return nil, ErrInvalidPsbtFormat
 	}
 
-	if msgTx == nil {
-		// TODO: Create msgTx with txOffset, locktime, inputs, outputs, etc?
-	}
-
 	// Next we parse the INPUT section.
 	inSlice := make([]PInput, *inputCount)
 	for i := 0; i < *inputCount; i++ {
 		input := PInput{}
-		err = input.deserialize(r)
+		err = input.deserialize(r, *psbtVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -387,7 +471,7 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 	outSlice := make([]POutput, *outputCount)
 	for i := 0; i < *outputCount; i++ {
 		output := POutput{}
-		err = output.deserialize(r)
+		err = output.deserialize(r, *psbtVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -410,9 +494,13 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 	// Populate the new Packet object.
 	newPsbt := Packet{
 		PsbtVersion:       *psbtVersion,
+		UnsignedTx:        msgTx,
+		TxVersion:         *txVersion,
+		FallbackLocktime:  fallbackLockTime,
+		ExtPubKeys:        extPubKeys,
+		TxModifiableFlag:  txModifiableFlag,
 		MwebTxOffset:      txOffset,
 		MwebStealthOffset: stealthOffset,
-		UnsignedTx:        msgTx,
 		Inputs:            inSlice,
 		Outputs:           outSlice,
 		Kernels:           kernelSlice,
@@ -437,22 +525,106 @@ func (p *Packet) Serialize(w io.Writer) error {
 		return err
 	}
 
-	// Next we prep to write out the unsigned transaction by first
-	// serializing it into an intermediate buffer.
-	serializedTx := bytes.NewBuffer(
-		make([]byte, 0, p.UnsignedTx.SerializeSize()),
-	)
-	if err := p.UnsignedTx.SerializeNoWitness(serializedTx); err != nil {
-		return err
+	if p.PsbtVersion == 0 {
+		// Next we prep to write out the unsigned transaction by first
+		// serializing it into an intermediate buffer.
+		serializedTx := bytes.NewBuffer(
+			make([]byte, 0, p.UnsignedTx.SerializeSize()),
+		)
+		if err := p.UnsignedTx.SerializeNoWitness(serializedTx); err != nil {
+			return err
+		}
+
+		// Now that we have the serialized transaction, we'll write it out to
+		// the proper global type.
+		err := serializeKVPairWithType(
+			w, uint8(UnsignedTxType), nil, serializedTx.Bytes(),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Now that we have the serialized transaction, we'll write it out to
-	// the proper global type.
-	err := serializeKVPairWithType(
-		w, uint8(UnsignedTxType), nil, serializedTx.Bytes(),
-	)
-	if err != nil {
-		return err
+	for _, extPubKey := range p.ExtPubKeys {
+		// Strip checksum from base58 and take raw 78 bytes
+		keyData := writeExtendedKey(extPubKey.ExtKey)
+
+		// Build valueData: 4-byte fingerprint + derivation path (LE uint32s)
+		valueData := make([]byte, 4+len(extPubKey.Path)*4)
+		binary.BigEndian.PutUint32(valueData[0:4], extPubKey.Fingerprint) // BIP32 fingerprint is big-endian
+		for i, index := range extPubKey.Path {
+			binary.LittleEndian.PutUint32(valueData[4+i*4:], index)
+		}
+
+		if err := serializeKVPairWithType(w, uint8(XpubType), keyData, valueData); err != nil {
+			return err
+		}
+	}
+
+	if p.PsbtVersion >= 2 {
+		// Tx Version
+		var txVersionBytes [4]byte
+		binary.LittleEndian.PutUint32(txVersionBytes[:], uint32(p.TxVersion))
+		if err := serializeKVPairWithType(w, uint8(TxVersionType), nil, txVersionBytes[:]); err != nil {
+			return err
+		}
+
+		// Fallback LockTime
+		if p.FallbackLocktime != nil {
+			var fallbackLockTimeBytes [4]byte
+			binary.LittleEndian.PutUint32(fallbackLockTimeBytes[:], *p.FallbackLocktime)
+			if err := serializeKVPairWithType(w, uint8(FallbackLockTimeType), nil, fallbackLockTimeBytes[:]); err != nil {
+				return err
+			}
+		}
+
+		// Tx Modifiable Flags
+		if p.TxModifiableFlag != nil {
+			if err := serializeKVPairWithType(w, uint8(TxModifiableType), nil, []byte{byte(*p.TxModifiableFlag)}); err != nil {
+				return err
+			}
+		}
+
+		// MWEB Tx Offset
+		if p.MwebTxOffset != nil {
+			if err := serializeKVPairWithType(w, uint8(MwebTxOffsetType), nil, p.MwebTxOffset[:]); err != nil {
+				return err
+			}
+		}
+
+		// MWEB Stealth Offset
+		if p.MwebTxOffset != nil {
+			if err := serializeKVPairWithType(w, uint8(MwebTxStealthOffsetType), nil, p.MwebStealthOffset[:]); err != nil {
+				return err
+			}
+		}
+
+		// Input Count
+		var inputCountValue bytes.Buffer
+		if err := wire.WriteVarInt(&inputCountValue, 0, uint64(len(p.Inputs))); err != nil {
+			return err
+		}
+		if err := serializeKVPairWithType(w, uint8(InputCountType), nil, inputCountValue.Bytes()); err != nil {
+			return err
+		}
+
+		// Output Count
+		var outputCountValue bytes.Buffer
+		if err := wire.WriteVarInt(&outputCountValue, 0, uint64(len(p.Outputs))); err != nil {
+			return err
+		}
+		if err := serializeKVPairWithType(w, uint8(OutputCountType), nil, outputCountValue.Bytes()); err != nil {
+			return err
+		}
+
+		// Kernel Count
+		var kernelCountValue bytes.Buffer
+		if err := wire.WriteVarInt(&kernelCountValue, 0, uint64(len(p.Kernels))); err != nil {
+			return err
+		}
+		if err := serializeKVPairWithType(w, uint8(MwebKernelCountType), nil, kernelCountValue.Bytes()); err != nil {
+			return err
+		}
 	}
 
 	// Unknown is a special case; we don't have a key type, only a key and
@@ -472,14 +644,14 @@ func (p *Packet) Serialize(w io.Writer) error {
 	}
 
 	for _, pInput := range p.Inputs {
-		err := pInput.serialize(w)
+		err := pInput.serialize(w, p.PsbtVersion)
 		if err != nil {
 			return err
 		}
 	}
 
 	for _, pOutput := range p.Outputs {
-		err := pOutput.serialize(w)
+		err := pOutput.serialize(w, p.PsbtVersion)
 		if err != nil {
 			return err
 		}
@@ -511,18 +683,24 @@ func (p *Packet) B64Encode() (string, error) {
 // whether the final extraction to a network serialized signed
 // transaction will be possible.
 func (p *Packet) IsComplete() bool {
-	for i := 0; i < len(p.UnsignedTx.TxIn); i++ {
-		if !isFinalized(p, i) {
+	if p.hasMwebComponents() {
+		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil || len(p.Kernels) == 0 {
 			return false
 		}
 	}
-	for _, kernel := range p.Kernels {
-		if !kernel.isFinalized() {
+
+	for _, input := range p.Inputs {
+		if !input.isFinalized() {
 			return false
 		}
 	}
 	for _, output := range p.Outputs {
 		if !output.isFinalized() {
+			return false
+		}
+	}
+	for _, kernel := range p.Kernels {
+		if !kernel.isFinalized() {
 			return false
 		}
 	}
@@ -533,12 +711,18 @@ func (p *Packet) IsComplete() bool {
 // SanityCheck checks conditions on a PSBT to ensure that it obeys the
 // rules of BIP174, and returns true if so, false if not.
 func (p *Packet) SanityCheck() error {
-	if !validateUnsignedTX(p.UnsignedTx) {
-		return ErrInvalidRawTxSigned
+	if p.PsbtVersion == 0 {
+		if !validateUnsignedTX(p.UnsignedTx) {
+			return ErrInvalidRawTxSigned
+		}
+
+		if p.hasMwebComponents() {
+			return ErrInvalidPsbtFormat
+		}
 	}
 
 	for _, tin := range p.Inputs {
-		if !tin.IsSane() {
+		if !tin.isSane(p.PsbtVersion) {
 			return ErrInvalidPsbtFormat
 		}
 	}
@@ -550,7 +734,7 @@ func (p *Packet) SanityCheck() error {
 	}
 
 	for _, output := range p.Outputs {
-		if !output.isSane() {
+		if !output.isSane(p.PsbtVersion) {
 			return ErrInvalidPsbtFormat
 		}
 	}
@@ -579,4 +763,46 @@ func (p *Packet) GetTxFee() (ltcutil.Amount, error) {
 		}
 	}
 	return fee, nil
+}
+
+func (p *Packet) hasMwebComponents() bool {
+	if p.MwebTxOffset != nil || p.MwebStealthOffset != nil || len(p.Kernels) != 0 {
+		return true
+	}
+
+	for _, input := range p.Inputs {
+		if input.isMWEB() {
+			return true
+		}
+	}
+
+	for _, output := range p.Outputs {
+		if output.isMWEB() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *Packet) getPrevOut(i int) (*wire.OutPoint, *chainhash.Hash) {
+	if p.PsbtVersion == 0 {
+		if p.UnsignedTx == nil || len(p.UnsignedTx.TxIn) < i {
+			return nil, nil
+		}
+
+		return &p.UnsignedTx.TxIn[i].PreviousOutPoint, nil
+	}
+
+	if len(p.Inputs) < i {
+		return nil, nil
+	}
+
+	pInput := p.Inputs[i]
+	if pInput.PrevoutHash == nil || pInput.PrevoutIndex == nil {
+		return nil, pInput.MwebOutputId
+	}
+
+	prevout := wire.OutPoint{Hash: *pInput.PrevoutHash, Index: *pInput.PrevoutIndex}
+	return &prevout, nil
 }

@@ -39,3 +39,16 @@ func (s *SecretKey) PubKey() *PublicKey {
 	key := secp256k1.NewPrivateKey(k).PubKey()
 	return (*PublicKey)(key.SerializeCompressed())
 }
+
+func NewSecretKey() (*SecretKey, error) {
+	key, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return nil, err
+	}
+
+	var sk SecretKey
+	bytes := key.Serialize()
+	copy(sk[:], bytes)
+
+	return &sk, nil
+}

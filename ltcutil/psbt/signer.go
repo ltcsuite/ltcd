@@ -10,7 +10,11 @@ package psbt
 // is in the correct state.
 
 import (
+	"errors"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
+	"github.com/ltcsuite/ltcd/wire"
 )
 
 // SignOutcome is a enum-like value that expresses the outcome of a call to the
@@ -46,7 +50,8 @@ const (
 func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 	redeemScript []byte, witnessScript []byte) (SignOutcome, error) {
 
-	if isFinalized(u.Upsbt, inIndex) {
+	pInput := u.Upsbt.Inputs[inIndex]
+	if pInput.isFinalized() {
 		return SignFinalized, nil
 	}
 
@@ -73,7 +78,6 @@ func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 	//
 	// Case 1: if witnessScript is present, it must be of type witness;
 	// if not, signature insertion will of course fail.
-	pInput := u.Upsbt.Inputs[inIndex]
 	switch {
 	case pInput.WitnessScript != nil:
 		if pInput.WitnessUtxo == nil {
@@ -135,6 +139,138 @@ func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 
 	return SignSuccesful, nil
 }
+
+func buildCoinForMwebInput(input *PInput, keychain *mweb.Keychain) (*mweb.Coin, error) {
+	if input.MwebAmount == nil {
+		return nil, errors.New("input amount missing")
+	} else if input.MwebOutputPubkey == nil {
+		return nil, errors.New("spent output pubkey missing")
+	} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
+		return nil, errors.New("input shared secret missing")
+	}
+
+	sharedSecret := input.MwebSharedSecret
+	if sharedSecret == nil {
+		sharedSecretPk := input.MwebOutputPubkey.Mul(keychain.Scan)
+		sharedSecret = (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sharedSecretPk[:]))
+	}
+
+	addrB := input.MwebOutputPubkey.Div((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
+	addrA := addrB.Mul(keychain.Scan)
+	address := mw.StealthAddress{Scan: addrA, Spend: addrB}
+
+	var addrIdx *uint32
+	// TODO: Do an actual lookup from a walletdb
+	for i := uint32(0); i < uint32(1000); i++ {
+		iAddr := keychain.Address(i)
+		if (*iAddr) == address {
+			addrIdx = &i
+			break
+		}
+	}
+	if addrIdx == nil {
+		return nil, errors.New("address not found")
+	}
+
+	addrSpendKey := keychain.SpendKey(*addrIdx)
+	outputSpendKey := addrSpendKey.Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
+
+	blind := (*mw.BlindingFactor)(mw.Hashed(mw.HashTagBlind, sharedSecret[:]))
+
+	senderKey, err := mw.NewSecretKey()
+	if err != nil {
+		return nil, err
+	}
+
+	coin := &mweb.Coin{
+		SpendKey:     outputSpendKey,
+		Blind:        blind,
+		Value:        uint64(*input.MwebAmount),
+		OutputId:     input.MwebOutputId,
+		SenderKey:    senderKey,
+		Address:      &address,
+		SharedSecret: sharedSecret,
+	}
+	return coin, nil
+}
+
+func addMwebSignatures(p *Packet) (SignOutcome, error) {
+	// TODO: Check if already signed
+
+	//var txOffset mw.BlindingFactor
+	//var stealthOffset mw.BlindingFactor
+	//var outputSigs [](int, mw.Signature)
+
+	var recipients []*mweb.Recipient
+	for _, output := range p.Outputs {
+		if output.isMWEB() {
+			recipients = append(recipients, &mweb.Recipient{Value: uint64(output.Amount), Address: output.StealthAddress})
+		}
+	}
+
+	var coins []*mweb.Coin
+
+	// To sign, all MWEB inputs need:
+	// 1. Spent Output ID
+	// 2. Amount
+	// 3. Spent Output Pubkey (Ko)
+	// 4. Master scan and master spend key info
+	// 5. Shared secret OR key exchange pubkey (Ke)
+	for _, input := range p.Inputs {
+		if input.isMWEB() {
+			if input.MwebMasterScanKey == nil || input.MwebMasterSpendKey == nil {
+				return SignInvalid, errors.New("input master key derivation missing")
+			}
+
+			// TODO: Use actual master keys
+			masterScanSecret, err := mw.NewSecretKey()
+			if err != nil {
+				return SignInvalid, err
+			}
+			masterSpendSecret, err := mw.NewSecretKey()
+			if err != nil {
+				return SignInvalid, err
+			}
+			keychain := mweb.Keychain{Scan: masterScanSecret, Spend: masterSpendSecret}
+
+			coin, err := buildCoinForMwebInput(&input, &keychain)
+			if err != nil {
+				return SignInvalid, err
+			}
+			coins = append(coins, coin)
+		}
+	}
+
+	fees := uint64(0)
+	pegins := uint64(0)
+	var pegouts []*wire.TxOut
+	for _, kernel := range p.Kernels {
+		if kernel.Fee != nil {
+			fees += uint64(*kernel.Fee)
+		}
+
+		if kernel.PeginAmount != nil {
+			pegins += uint64(*kernel.PeginAmount)
+		}
+
+		for _, pegout := range kernel.PegOuts {
+			pegouts = append(pegouts, pegout)
+		}
+	}
+
+	mwebTx, _, err := mweb.NewTransaction(coins, recipients, fees, pegins, pegouts)
+	if err != nil {
+		return SignInvalid, err
+	}
+
+	p.MwebTxOffset = &mwebTx.KernelOffset
+	p.MwebStealthOffset = &mwebTx.StealthOffset
+	// TODO: Finish updating components from values in mwebTx
+
+	return SignSuccesful, nil
+}
+
+//func signMwebOutput(po *POutput, senderKey *mw.SecretKey)
 
 // nonWitnessToWitness extracts the TxOut from the existing NonWitnessUtxo
 // field in the given PSBT input and sets it as type witness by replacing the
