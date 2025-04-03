@@ -123,6 +123,18 @@ const (
 	// scripts necessary for the input to pass validation.
 	FinalScriptWitnessType InputType = 8
 
+	// TODO: PSBT_IN_RIPEMD160 (0x0A), PSBT_IN_SHA256 (0x0B), PSBT_IN_HASH160 (0x0C), PSBT_IN_HASH256 (0x0D)
+
+	PrevoutHashInputType InputType = 0x0E
+
+	PrevoutIndexInputType InputType = 0x0F
+
+	SequenceInputType InputType = 0x10
+
+	RequiredTimeLocktimeInputType InputType = 0x11
+
+	RequiredHeightLocktimeInputType InputType = 0x12
+
 	// TaprootKeySpendSignatureType is an empty key ({0x13}). The value is
 	// a 64-byte Schnorr signature or a 65-byte Schnorr signature with the
 	// one byte sighash type appended to it.
@@ -160,17 +172,19 @@ const (
 	// 32-byte hash denoting the root hash of a merkle tree of scripts.
 	TaprootMerkleRootType InputType = 0x18
 
-	MwebSpentOutputIdType     InputType = 0x90
-	MwebSpentOutputCommitType InputType = 0x91
-	MwebSpentOutputPubKeyType InputType = 0x92
-	MwebInputPubKeyType       InputType = 0x93
-	MwebInputFeaturesType     InputType = 0x94
-	MwebInputSignatureType    InputType = 0x95
-	MwebAddressIndexType      InputType = 0x96
-	MwebInputAmountType       InputType = 0x97
-	MwebSharedSecretType      InputType = 0x98
-	MwebSpentOutputBlindType  InputType = 0x99
-	MwebInputExtraDataType    InputType = 0x9A
+	MwebSpentOutputIdType        InputType = 0x90
+	MwebSpentOutputCommitType    InputType = 0x91
+	MwebSpentOutputPubKeyType    InputType = 0x92
+	MwebInputPubKeyType          InputType = 0x93
+	MwebInputFeaturesType        InputType = 0x94
+	MwebInputSignatureType       InputType = 0x95
+	MwebAddressIndexType         InputType = 0x96
+	MwebInputAmountType          InputType = 0x97
+	MwebSharedSecretType         InputType = 0x98
+	MwebKeyExchangePubKeyType    InputType = 0x99
+	MwebMasterScanKeyOriginType  InputType = 0x9A
+	MwebMasterSpendKeyOriginType InputType = 0x9B
+	MwebInputExtraDataType       InputType = 0x9C
 
 	// ProprietaryInputType is a custom type for use by devs.
 	//
@@ -204,6 +218,10 @@ const (
 	// little endian unsigned integer indexes concatenated with each other.
 	// Public keys are those needed to spend this output.
 	Bip32DerivationOutputType OutputType = 2
+
+	AmountOutputType OutputType = 3
+
+	PKScriptOutputType OutputType = 4
 
 	// TaprootInternalKeyOutputType is an empty key ({0x05}). The value is
 	// an x-only pubkey denoting the internal public key used for
@@ -243,6 +261,7 @@ const (
 	MwebKernelPeginAmountType   KernelType = 3
 	MwebKernelPegoutType        KernelType = 4
 	MwebKernelLockHeightType    KernelType = 5
-	MwebKernelExtraDataType     KernelType = 6
-	MwebKernelSignatureType     KernelType = 7
+	MwebKernelFeaturesType      KernelType = 6
+	MwebKernelExtraDataType     KernelType = 7
+	MwebKernelSignatureType     KernelType = 8
 )

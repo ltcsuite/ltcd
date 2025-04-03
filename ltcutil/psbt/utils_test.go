@@ -1,8 +1,6 @@
 package psbt
 
 import (
-	"bytes"
-	"reflect"
 	"testing"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
@@ -314,7 +312,7 @@ func TestVerifyInputOutputLen(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			err := VerifyInputOutputLen(
+			err := verifyInputOutputLen(
 				tc.packet, tc.needInputs, tc.needOutputs,
 			)
 			if (tc.expectErr && err == nil) ||
@@ -324,47 +322,5 @@ func TestVerifyInputOutputLen(t *testing.T) {
 					"nil: %v", err, tc.expectErr)
 			}
 		})
-	}
-}
-
-func TestNewFromSignedTx(t *testing.T) {
-	orig := &wire.MsgTx{
-		TxIn: []*wire.TxIn{{
-			PreviousOutPoint: wire.OutPoint{},
-			SignatureScript:  []byte("script"),
-			Witness:          [][]byte{[]byte("witness")},
-			Sequence:         1234,
-		}},
-		TxOut: []*wire.TxOut{{
-			PkScript: []byte{77, 88},
-			Value:    99,
-		}},
-	}
-
-	packet, scripts, witnesses, err := NewFromSignedTx(orig)
-	if err != nil {
-		t.Fatalf("could not create packet from signed TX: %v", err)
-	}
-
-	tx := packet.UnsignedTx
-	expectedTxIn := []*wire.TxIn{{
-		PreviousOutPoint: wire.OutPoint{},
-		Sequence:         1234,
-	}}
-	if !reflect.DeepEqual(tx.TxIn, expectedTxIn) {
-		t.Fatalf("unexpected txin, got %#v wanted %#v",
-			tx.TxIn, expectedTxIn)
-	}
-	if !reflect.DeepEqual(tx.TxOut, orig.TxOut) {
-		t.Fatalf("unexpected txout, got %#v wanted %#v",
-			tx.TxOut, orig.TxOut)
-	}
-	if len(scripts) != 1 || !bytes.Equal(scripts[0], []byte("script")) {
-		t.Fatalf("script not extracted correctly")
-	}
-	if len(witnesses) != 1 ||
-		!bytes.Equal(witnesses[0][0], []byte("witness")) {
-
-		t.Fatalf("witness not extracted correctly")
 	}
 }

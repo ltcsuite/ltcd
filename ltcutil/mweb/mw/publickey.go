@@ -1,6 +1,9 @@
 package mw
 
-import "github.com/decred/dcrd/dcrec/secp256k1/v4"
+import (
+	"errors"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+)
 
 type PublicKey [33]byte
 
@@ -40,14 +43,18 @@ func (pk *PublicKey) Div(sk *SecretKey) *PublicKey {
 	return pk.mul(sk.scalar().InverseNonConst())
 }
 
-func ReadPublicKey(bytes []byte) *PublicKey {
+func ReadPublicKey(bytes []byte) (*PublicKey, error) {
 	if len(bytes) < 33 {
-		return nil
+		return nil, errors.New("invalid public key length")
 	}
 
-	// TODO: Check if valid format
+	// Check if valid format
+	_, err := secp256k1.ParsePubKey(bytes)
+	if err != nil {
+		return nil, err
+	}
 
 	publicKey := new(PublicKey)
 	copy(publicKey[:], bytes[0:33])
-	return publicKey
+	return publicKey, nil
 }

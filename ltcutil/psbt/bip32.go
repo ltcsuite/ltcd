@@ -3,6 +3,11 @@ package psbt
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"github.com/ltcsuite/ltcd/btcec/v2"
+	"github.com/ltcsuite/ltcd/ltcutil/base58"
+	"github.com/ltcsuite/ltcd/ltcutil/hdkeychain"
+	"math/big"
 )
 
 const BIP32_EXTKEY_SIZE = 74
@@ -80,4 +85,47 @@ func SerializeBIP32Derivation(masterKeyFingerprint uint32,
 	}
 
 	return derivationPath
+}
+
+// Parses 78 byte BIP32 Extended key with version bytes.
+// Similar to hdkeychain.NewKeyFromString, except without the checksum, and using raw bytes instead of base58.
+func readExtendedKey(payload []byte) (*hdkeychain.ExtendedKey, error) {
+	if len(payload) != 78 {
+		return nil, fmt.Errorf("invalid xpub length: %d", len(payload))
+	}
+
+	// Deserialize each of the payload fields.
+	version := payload[:4]
+	depth := payload[4:5][0]
+	parentFP := payload[5:9]
+	childNum := binary.BigEndian.Uint32(payload[9:13])
+	chainCode := payload[13:45]
+	keyData := payload[45:78]
+
+	// The key data is a private key if it starts with 0x00.  Serialized
+	// compressed pubkeys either start with 0x02 or 0x03.
+	isPrivate := keyData[0] == 0x00
+	if isPrivate {
+		// Ensure the private key is valid.  It must be within the range
+		// of the order of the secp256k1 curve and not be 0.
+		keyData = keyData[1:]
+		keyNum := new(big.Int).SetBytes(keyData)
+		if keyNum.Cmp(btcec.S256().N) >= 0 || keyNum.Sign() == 0 {
+			return nil, hdkeychain.ErrUnusableSeed
+		}
+	} else {
+		// Ensure the public key parses correctly and is actually on the
+		// secp256k1 curve.
+		_, err := btcec.ParsePubKey(keyData)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return hdkeychain.NewExtendedKey(version, keyData, chainCode, parentFP, depth, childNum, isPrivate), nil
+}
+
+// Writes the 78 byte BIP32 Extended key with version bytes. No checksum is included.
+func writeExtendedKey(extKey *hdkeychain.ExtendedKey) []byte {
+	return base58.Decode(extKey.String())[0:78]
 }

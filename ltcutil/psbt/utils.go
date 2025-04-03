@@ -254,18 +254,29 @@ func getKey(r io.Reader) (int, []byte, error) {
 	if _, err := io.ReadFull(r, keyTypeAndData[:]); err != nil {
 		return -1, nil, err
 	}
+	keyReader := bytes.NewReader(keyTypeAndData[:])
 
-	keyType := int(keyTypeAndData[0]) // TODO: BIP-0174 calls for this to be a compact size instead. I'm too lazy to change it
+	// BIP-0174 specifies that the key shall begin with a varint indicating the type.
+	// The remaining bytes, if any, are the key data.
+	varKeyType, err := wire.ReadVarInt(keyReader, 0)
+	if err != nil {
+		return -1, nil, ErrInvalidPsbtFormat
+	}
+	keyType := int(varKeyType)
 
 	// Note that the second return value will usually be empty, since most
 	// keys contain no more than the key type byte.
-	if len(keyTypeAndData) == 1 {
+	if keyReader.Len() == 0 {
 		return keyType, nil, nil
 	}
 
-	// Otherwise, we return the key, along with any data that it may
-	// contain.
-	return keyType, keyTypeAndData[1:], nil
+	// Otherwise, we return the key, along with any data that it may contain.
+	keyData := make([]byte, keyReader.Len())
+	if _, err := keyReader.Read(keyData); err != nil {
+		return -1, nil, err
+	}
+
+	return keyType, keyData, nil
 }
 
 type keyValuePair struct {
@@ -310,7 +321,12 @@ func readTxOut(txout []byte) (*wire.TxOut, error) {
 	}
 
 	valueSer := binary.LittleEndian.Uint64(txout[:8])
-	scriptPubKey := txout[9:] // TODO: This should probably call ReadVarBytes to avoid reading too far
+
+	scriptReader := bytes.NewReader(txout[8:])
+	scriptPubKey, err := wire.ReadVarBytes(scriptReader, 0, MaxPsbtValueLength, "scriptPubKey")
+	if err != nil {
+		return nil, err
+	}
 
 	return wire.NewTxOut(int64(valueSer), scriptPubKey), nil
 }
@@ -322,7 +338,7 @@ func SumUtxoInputValues(packet *Packet) (int64, error) {
 	// We take the TX ins of the unsigned TX as the truth for how many
 	// inputs there should be, as the fields in the extra data part of the
 	// PSBT can be empty.
-	if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
+	if packet.PsbtVersion == 0 && len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
 		return 0, fmt.Errorf("TX input length doesn't match PSBT " +
 			"input length")
 	}
@@ -349,6 +365,9 @@ func SumUtxoInputValues(packet *Packet) (int64, error) {
 			}
 
 			inputSum += utxOuts[txIn.PreviousOutPoint.Index].Value
+
+		case in.MwebAmount != nil:
+			inputSum += int64(*in.MwebAmount)
 
 		default:
 			return 0, fmt.Errorf("input %d has no UTXO information",
@@ -401,29 +420,35 @@ func VerifyInputPrevOutpointsEqual(ins1, ins2 []*wire.TxIn) error {
 	return nil
 }
 
-// VerifyInputOutputLen makes sure a packet is non-nil, contains a non-nil wire
-// transaction and that the wire input/output lengths match the partial input/
+// verifyInputOutputLen makes sure a packet is non-nil, contains a non-nil wire
+// transaction if PSBTv0, and that the wire input/output lengths match the partial input/
 // output lengths. A caller also can specify if they expect any inputs and/or
 // outputs to be contained in the packet.
-func VerifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
-	if packet == nil || packet.UnsignedTx == nil {
+func verifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
+	if packet == nil {
 		return fmt.Errorf("PSBT packet cannot be nil")
 	}
 
-	if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
-		return fmt.Errorf("invalid PSBT, wire inputs don't match " +
-			"partial inputs")
-	}
-	if len(packet.UnsignedTx.TxOut) != len(packet.Outputs) {
-		return fmt.Errorf("invalid PSBT, wire outputs don't match " +
-			"partial outputs")
+	if packet.PsbtVersion == 0 {
+		if packet.UnsignedTx == nil {
+			return fmt.Errorf("invalid PSBT, unsigned tx cannot be nil for PSBTv0")
+		}
+
+		if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
+			return fmt.Errorf("invalid PSBT, wire inputs don't match " +
+				"partial inputs")
+		}
+		if len(packet.UnsignedTx.TxOut) != len(packet.Outputs) {
+			return fmt.Errorf("invalid PSBT, wire outputs don't match " +
+				"partial outputs")
+		}
 	}
 
-	if needInputs && len(packet.UnsignedTx.TxIn) == 0 {
+	if needInputs && len(packet.Inputs) == 0 {
 		return fmt.Errorf("PSBT packet must contain at least one " +
 			"input")
 	}
-	if needOutputs && len(packet.UnsignedTx.TxOut) == 0 {
+	if needOutputs && len(packet.Outputs) == 0 {
 		return fmt.Errorf("PSBT packet must contain at least one " +
 			"output")
 	}
@@ -439,53 +464,34 @@ func VerifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
 // type and the second reason is that the sighash calculation for taproot inputs
 // include the previous output pkscripts.
 func InputsReadyToSign(packet *Packet) error {
-	err := VerifyInputOutputLen(packet, true, true)
+	err := verifyInputOutputLen(packet, true, true)
 	if err != nil {
 		return err
 	}
 
-	for i := range packet.UnsignedTx.TxIn {
-		input := packet.Inputs[i]
-		if input.NonWitnessUtxo == nil && input.WitnessUtxo == nil {
+	for i, input := range packet.Inputs {
+		if input.isMWEB() {
+			if input.MwebAmount == nil {
+				return errors.New("input amount missing")
+			} else if input.MwebOutputPubkey == nil {
+				return errors.New("spent output pubkey missing")
+			} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
+				return errors.New("input shared secret missing")
+			}
+		} else if input.NonWitnessUtxo == nil && input.WitnessUtxo == nil {
 			return fmt.Errorf("invalid PSBT, input with index %d "+
 				"missing utxo information", i)
 		}
 	}
 
+	// TODO: Check MWEB outputs
+
 	return nil
 }
 
-// NewFromSignedTx is a utility function to create a packet from an
-// already-signed transaction. Returned are: an unsigned transaction
-// serialization, a list of scriptSigs, one per input, and a list of witnesses,
-// one per input.
-func NewFromSignedTx(tx *wire.MsgTx) (*Packet, [][]byte,
-	[]wire.TxWitness, error) {
-
-	scriptSigs := make([][]byte, 0, len(tx.TxIn))
-	witnesses := make([]wire.TxWitness, 0, len(tx.TxIn))
-	tx2 := tx.Copy()
-
-	// Blank out signature info in inputs
-	for i, tin := range tx2.TxIn {
-		tin.SignatureScript = nil
-		scriptSigs = append(scriptSigs, tx.TxIn[i].SignatureScript)
-		tin.Witness = nil
-		witnesses = append(witnesses, tx.TxIn[i].Witness)
-	}
-
-	// Outputs always contain: (value, scriptPubkey) so don't need
-	// amending.  Now tx2 is tx with all signing data stripped out
-	unsignedPsbt, err := NewFromUnsignedTx(tx2)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return unsignedPsbt, scriptSigs, witnesses, nil
-}
-
-// FindLeafScript attempts to locate the leaf script of a given target Tap Leaf
+// findLeafScript attempts to locate the leaf script of a given target Tap Leaf
 // hash in the list of leaf scripts of the given input.
-func FindLeafScript(pInput *PInput,
+func findLeafScript(pInput *PInput,
 	targetLeafHash []byte) (*TaprootTapLeafScript, error) {
 
 	for _, leaf := range pInput.TaprootLeafScript {
@@ -501,10 +507,6 @@ func FindLeafScript(pInput *PInput,
 
 	return nil, fmt.Errorf("leaf script for target leaf hash %x not "+
 		"found in input", targetLeafHash)
-}
-
-func int32Ptr(v int32) *int32 {
-	return &v
 }
 
 func uint32Ptr(v uint32) *uint32 {

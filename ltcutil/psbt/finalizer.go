@@ -20,14 +20,6 @@ import (
 	"github.com/ltcsuite/ltcd/wire"
 )
 
-// isFinalized considers this input finalized if it contains at least one of
-// the FinalScriptSig or FinalScriptWitness are filled (which only occurs in a
-// successful call to Finalize*).
-func isFinalized(p *Packet, inIndex int) bool {
-	input := p.Inputs[inIndex]
-	return input.FinalScriptSig != nil || input.FinalScriptWitness != nil
-}
-
 // isFinalizableWitnessInput returns true if the target input is a witness UTXO
 // that can be finalized.
 func isFinalizableWitnessInput(pInput *PInput) bool {
@@ -55,7 +47,7 @@ func isFinalizableWitnessInput(pInput *PInput) bool {
 			// For each of the script spend signatures we need a
 			// corresponding tap script leaf with the control block.
 			for _, sig := range pInput.TaprootScriptSpendSig {
-				_, err := FindLeafScript(pInput, sig.LeafHash)
+				_, err := findLeafScript(pInput, sig.LeafHash)
 				if err != nil {
 					return false
 				}
@@ -168,7 +160,8 @@ func isFinalizable(p *Packet, inIndex int) bool {
 // returning true with no error if it succeeds, OR if the input has already
 // been finalized.
 func MaybeFinalize(p *Packet, inIndex int) (bool, error) {
-	if isFinalized(p, inIndex) {
+	pInput := p.Inputs[inIndex]
+	if pInput.isFinalized() {
 		return true, nil
 	}
 
@@ -545,7 +538,7 @@ func finalizeTaprootInput(p *Packet, inIndex int) error {
 		// multiple possible execution paths at the same time is
 		// currently not supported by this library.
 		targetLeafHash := pInput.TaprootScriptSpendSig[0].LeafHash
-		leafScript, err := FindLeafScript(pInput, targetLeafHash)
+		leafScript, err := findLeafScript(pInput, targetLeafHash)
 		if err != nil {
 			return fmt.Errorf("control block for script spend " +
 				"signature not found")
