@@ -235,30 +235,13 @@ func Finalize(p *Packet, inIndex int) error {
 	return nil
 }
 
-// checkFinalScriptSigWitness checks whether a given input in the psbt.Packet
-// struct already has the fields 07 (FinalInScriptSig) or 08 (FinalInWitness).
-// If so, it returns true. It does not modify the Psbt.
-func checkFinalScriptSigWitness(p *Packet, inIndex int) bool {
-	pInput := p.Inputs[inIndex]
-
-	if pInput.FinalScriptSig != nil {
-		return true
-	}
-
-	if pInput.FinalScriptWitness != nil {
-		return true
-	}
-
-	return false
-}
-
 // finalizeNonWitnessInput attempts to create a PsbtInFinalScriptSig field for
 // the input at index inIndex, and removes all other fields except for the UTXO
 // field, for an input of type non-witness, or returns an error.
 func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 	// If this input has already been finalized, then we'll return an error
 	// as we can't proceed.
-	if checkFinalScriptSigWitness(p, inIndex) {
+	if p.Inputs[inIndex].isFinalized() {
 		return ErrInputAlreadyFinalized
 	}
 
@@ -359,7 +342,7 @@ func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 func finalizeWitnessInput(p *Packet, inIndex int) error {
 	// If this input has already been finalized, then we'll return an error
 	// as we can't proceed.
-	if checkFinalScriptSigWitness(p, inIndex) {
+	if p.Inputs[inIndex].isFinalized() {
 		return ErrInputAlreadyFinalized
 	}
 
@@ -498,7 +481,7 @@ func finalizeWitnessInput(p *Packet, inIndex int) error {
 func finalizeTaprootInput(p *Packet, inIndex int) error {
 	// If this input has already been finalized, then we'll return an error
 	// as we can't proceed.
-	if checkFinalScriptSigWitness(p, inIndex) {
+	if p.Inputs[inIndex].isFinalized() {
 		return ErrInputAlreadyFinalized
 	}
 
