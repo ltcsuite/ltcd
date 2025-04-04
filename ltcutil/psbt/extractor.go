@@ -12,8 +12,12 @@ package psbt
 import (
 	"bytes"
 	"errors"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
+	"lukechampine.com/blake3"
+	"math/big"
+	"sort"
 )
 
 // Extract takes a finalized psbt.Packet and outputs a finalized transaction
@@ -83,7 +87,69 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 	}
 
 	if p.hasMwebComponents() {
-		// TODO: Extract MWEB Tx
+		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil {
+			return nil, errors.New("missing MWEB offsets")
+		}
+
+		// Extract MWEB Inputs
+		var inputs []*wire.MwebInput
+		for _, pi := range p.Inputs {
+			if pi.isMWEB() {
+				input, err := extractMwebInput(&pi)
+				if err != nil {
+					return nil, err
+				}
+				inputs = append(inputs, input)
+			}
+		}
+
+		// Extract MWEB Outputs
+		var outputs []*wire.MwebOutput
+		for _, po := range p.Outputs {
+			if po.isMWEB() {
+				output, err := extractMwebOutput(&po)
+				if err != nil {
+					return nil, err
+				}
+				outputs = append(outputs, output)
+			}
+		}
+
+		// Extract MWEB Kernels
+		var kernels []*wire.MwebKernel
+		for _, pk := range p.Kernels {
+			kernel, err := extractKernel(&pk)
+			if err != nil {
+				return nil, err
+			}
+			kernels = append(kernels, kernel)
+		}
+
+		// Sort components before assembling txBody
+		sort.Slice(inputs, func(i, j int) bool {
+			// Sort by OutputId lexicographically
+			a := new(big.Int).SetBytes(inputs[i].OutputId[:])
+			b := new(big.Int).SetBytes(inputs[j].OutputId[:])
+			return a.Cmp(b) < 0
+		})
+		sort.Slice(outputs, func(i, j int) bool {
+			// Sort by OutputId lexicographically
+			a := new(big.Int).SetBytes(outputs[i].Hash()[:])
+			b := new(big.Int).SetBytes(outputs[j].Hash()[:])
+			return a.Cmp(b) < 0
+		})
+		sortKernels(kernels)
+
+		txBody := wire.MwebTxBody{
+			Inputs:  inputs,
+			Outputs: outputs,
+			Kernels: kernels,
+		}
+		tx.Mweb = &wire.MwebTx{
+			KernelOffset:  *p.MwebTxOffset,
+			StealthOffset: *p.MwebStealthOffset,
+			TxBody:        &txBody,
+		}
 	}
 
 	return tx, nil
@@ -144,4 +210,155 @@ func extractTxWitness(finalScriptWitness []byte) (wire.TxWitness, error) {
 	}
 
 	return witness, nil
+}
+
+func extractMwebInput(pi *PInput) (*wire.MwebInput, error) {
+	if !pi.isMWEB() {
+		return nil, errors.New("input not mweb")
+	}
+
+	if !pi.isFinalized() {
+		return nil, errors.New("mweb input not finalized")
+	}
+
+	var extraData []byte
+	if pi.MwebExtraData != nil {
+		extraData = append([]byte(nil), pi.MwebExtraData...)
+	}
+
+	mwebInput := &wire.MwebInput{
+		Features:     *pi.MwebFeatures,
+		OutputId:     *pi.MwebOutputId,
+		Commitment:   *pi.MwebCommit,
+		InputPubKey:  pi.MwebInputPubkey,
+		OutputPubKey: *pi.MwebOutputPubkey,
+		ExtraData:    extraData,
+		Signature:    *pi.MwebInputSig,
+	}
+	return mwebInput, nil
+}
+
+func extractMwebOutput(po *POutput) (*wire.MwebOutput, error) {
+	if !po.isMWEB() {
+		return nil, errors.New("output not mweb")
+	}
+
+	if !po.isFinalized() {
+		return nil, errors.New("mweb output not finalized")
+	}
+
+	var extraData []byte
+	if po.MwebExtraData != nil {
+		extraData = append([]byte(nil), po.MwebExtraData...)
+	}
+
+	var keyExchangePubKey mw.PublicKey
+	var viewTag uint8
+	var encryptedValue uint64
+	var maskedNonce big.Int
+	if po.MwebStandardFields != nil {
+		keyExchangePubKey = po.MwebStandardFields.KeyExchangePubkey
+		viewTag = po.MwebStandardFields.ViewTag
+		encryptedValue = po.MwebStandardFields.EncryptedValue
+		maskedNonce.SetBytes(po.MwebStandardFields.EncryptedNonce[:])
+	}
+
+	outputMessage := wire.MwebOutputMessage{
+		Features:          *po.MwebFeatures,
+		KeyExchangePubKey: keyExchangePubKey,
+		ViewTag:           viewTag,
+		MaskedValue:       encryptedValue,
+		MaskedNonce:       maskedNonce,
+		ExtraData:         extraData,
+	}
+
+	var rangeProof mw.RangeProof
+	copy(rangeProof[:], po.RangeProof[:])
+
+	mwebOutput := &wire.MwebOutput{
+		Commitment:     *po.OutputCommit,
+		SenderPubKey:   *po.SenderPubkey,
+		Message:        outputMessage,
+		RangeProof:     &rangeProof,
+		RangeProofHash: blake3.Sum256(rangeProof[:]),
+		Signature:      *po.MwebSignature,
+	}
+	return mwebOutput, nil
+}
+
+func extractKernel(pk *PKernel) (*wire.MwebKernel, error) {
+	if !pk.isFinalized() {
+		return nil, errors.New("kernel not finalized")
+	}
+
+	fee := uint64(0)
+	if pk.Fee != nil {
+		fee = uint64(*pk.Fee)
+	}
+	pegin := uint64(0)
+	if pk.PeginAmount != nil {
+		pegin = uint64(*pk.PeginAmount)
+	}
+	var pegouts []*wire.TxOut
+	for _, out := range pk.PegOuts {
+		copied := &wire.TxOut{
+			Value:    out.Value,
+			PkScript: append([]byte(nil), out.PkScript...), // clone PkScript
+		}
+		pegouts = append(pegouts, copied)
+	}
+	lockHeight := int32(0)
+	if pk.LockHeight != nil {
+		lockHeight = *pk.LockHeight
+	}
+	var stealthExcess mw.PublicKey
+	if pk.StealthExcess != nil {
+		stealthExcess = *pk.StealthExcess
+	}
+	var extraData []byte
+	if pk.ExtraData != nil {
+		extraData = append([]byte(nil), pk.ExtraData...)
+	}
+	kernel := &wire.MwebKernel{
+		Features:      *pk.Features,
+		Fee:           fee,
+		Pegin:         pegin,
+		Pegouts:       pegouts,
+		LockHeight:    lockHeight,
+		StealthExcess: stealthExcess,
+		ExtraData:     extraData,
+		Excess:        *pk.ExcessCommitment,
+		Signature:     *pk.Signature,
+	}
+	return kernel, nil
+}
+
+// sortKernels sorts MwebKernels in place by net supply increase (descending),
+// breaking ties by hash (ascending).
+func sortKernels(kernels []*wire.MwebKernel) {
+	sort.Slice(kernels, func(i, j int) bool {
+		a := kernels[i]
+		b := kernels[j]
+
+		// Net supply change: (pegin - fee - pegouts)
+		aSupply := int64(a.Pegin) - int64(a.Fee)
+		for _, out := range a.Pegouts {
+			aSupply -= out.Value
+		}
+
+		bSupply := int64(b.Pegin) - int64(b.Fee)
+		for _, out := range b.Pegouts {
+			bSupply -= out.Value
+		}
+
+		if aSupply != bSupply {
+			return aSupply > bSupply // higher net supply first
+		}
+
+		aHash := new(big.Int).SetBytes(a.Hash()[:])
+		bHash := new(big.Int).SetBytes(b.Hash()[:])
+
+		// Tie-break by hash
+		return aHash.Cmp(bHash) < 0
+	})
 }
