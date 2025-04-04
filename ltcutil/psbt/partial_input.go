@@ -47,6 +47,7 @@ type PInput struct {
 	MwebInputSig           *mw.Signature
 	MwebMasterScanKey      *Bip32Derivation
 	MwebMasterSpendKey     *Bip32Derivation
+	MwebExtraData          []byte
 	Unknowns               []*Unknown
 }
 
@@ -84,6 +85,7 @@ func NewPsbtInput(nonWitnessUtxo *wire.MsgTx, witnessUtxo *wire.TxOut) *PInput {
 		MwebInputSig:           nil,
 		MwebMasterScanKey:      nil,
 		MwebMasterSpendKey:     nil,
+		MwebExtraData:          nil,
 		Unknowns:               nil,
 	}
 }
@@ -107,7 +109,8 @@ func (pi *PInput) isSane(psbtVersion uint32) bool {
 			pi.MwebOutputPubkey != nil ||
 			pi.MwebInputPubkey != nil ||
 			pi.MwebFeatures != nil ||
-			pi.MwebInputSig != nil {
+			pi.MwebInputSig != nil ||
+			pi.MwebExtraData != nil {
 			return false
 		}
 	}
@@ -117,7 +120,7 @@ func (pi *PInput) isSane(psbtVersion uint32) bool {
 			return false
 		}
 
-		// TODO: Should probably verify that no non-MWEB fields are set
+		// TODO(dburkett): Should probably verify that no non-MWEB fields are set
 		return true
 	}
 
@@ -144,8 +147,8 @@ func (pi *PInput) isFinalized() bool {
 			return false
 		}
 
-		// Extra data not yet supported in PSBTs
-		if *pi.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0 {
+		// If extra data feature bit is set, it must be provided
+		if *pi.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0 && len(pi.MwebExtraData) == 0 {
 			return false
 		}
 
@@ -622,7 +625,11 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 				MasterKeyFingerprint: master,
 				Bip32Path:            derivationPath,
 			}
-		// case MwebInputExtraDataType: // Not yet supported
+		case MwebInputExtraDataType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			pi.MwebExtraData = kvPair.valueData
 		default:
 			// A fall through case for any proprietary types.
 			keyCodeAndData := append(
@@ -947,6 +954,13 @@ func (pi *PInput) serialize(w io.Writer, psbtVersion uint32) error {
 				w, uint8(MwebInputFeaturesType), nil,
 				[]byte{byte(*pi.MwebFeatures)},
 			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(pi.MwebExtraData) > 0 {
+			err := serializeKVPairWithType(w, uint8(MwebInputExtraDataType), nil, pi.MwebExtraData)
 			if err != nil {
 				return err
 			}

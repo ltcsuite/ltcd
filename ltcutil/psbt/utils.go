@@ -484,7 +484,7 @@ func InputsReadyToSign(packet *Packet) error {
 		}
 	}
 
-	// TODO: Check MWEB outputs
+	// TODO(dburkett): Check MWEB outputs
 
 	return nil
 }

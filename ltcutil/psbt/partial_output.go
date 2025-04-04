@@ -28,6 +28,7 @@ type POutput struct {
 	MwebStandardFields     *standardMwebOutputFields
 	RangeProof             *mw.RangeProof
 	MwebSignature          *mw.Signature
+	MwebExtraData          []byte
 	Unknowns               []*Unknown
 }
 
@@ -69,18 +70,14 @@ func (po *POutput) isSane(psbtVersion uint32) bool {
 			po.OutputPubkey != nil ||
 			po.MwebStandardFields != nil ||
 			po.RangeProof != nil ||
-			po.MwebSignature != nil {
+			po.MwebSignature != nil ||
+			po.MwebExtraData != nil {
 			return false
 		}
 	}
 
 	if po.isMWEB() {
 		if po.StealthAddress == nil && po.OutputCommit == nil {
-			return false
-		}
-
-		if po.MwebFeatures != nil && (*po.MwebFeatures&wire.MwebOutputMessageExtraDataFeatureBit) > 0 {
-			// We don't yet support MWEB extra data fields
 			return false
 		}
 
@@ -94,6 +91,10 @@ func (po *POutput) isSane(psbtVersion uint32) bool {
 			}
 
 			if (*po.MwebFeatures&wire.MwebOutputMessageStandardFieldsFeatureBit) > 0 && po.MwebStandardFields == nil {
+				return false
+			}
+
+			if (*po.MwebFeatures&wire.MwebOutputMessageExtraDataFeatureBit) > 0 && len(po.MwebExtraData) == 0 {
 				return false
 			}
 		}
@@ -324,7 +325,11 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 			if po.MwebSignature == nil {
 				return ErrInvalidPsbtFormat
 			}
-		// case MwebExtraDataOutputType: // Not yet supported
+		case MwebExtraDataOutputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			po.MwebExtraData = kvPair.valueData
 		default:
 			// A fall through case for any proprietary types.
 			keyCodeAndData := append(
@@ -467,6 +472,13 @@ func (po *POutput) serialize(w io.Writer, psbtVersion uint32) error {
 
 		if po.OutputPubkey != nil {
 			err := serializeKVPairWithType(w, uint8(MwebOutputPubKeyOutputType), nil, po.OutputPubkey[:])
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(po.MwebExtraData) > 0 {
+			err := serializeKVPairWithType(w, uint8(MwebExtraDataOutputType), nil, po.MwebExtraData)
 			if err != nil {
 				return err
 			}
