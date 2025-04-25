@@ -146,60 +146,6 @@ func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 	return SignSuccesful, nil
 }
 
-func buildCoinForMwebInput(input *PInput, keychain *mweb.Keychain) (*mweb.Coin, error) {
-	if input.MwebAmount == nil {
-		return nil, errors.New("input amount missing")
-	} else if input.MwebOutputPubkey == nil {
-		return nil, errors.New("spent output pubkey missing")
-	} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
-		return nil, errors.New("input shared secret missing")
-	}
-
-	sharedSecret := input.MwebSharedSecret
-	if sharedSecret == nil {
-		sharedSecretPk := input.MwebKeyExchangePubkey.Mul(keychain.Scan)
-		sharedSecret = (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sharedSecretPk[:]))
-	}
-
-	addrB := input.MwebOutputPubkey.Div((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-	addrA := addrB.Mul(keychain.Scan)
-	address := mw.StealthAddress{Scan: addrA, Spend: addrB}
-
-	var addrIdx *uint32
-	// TODO(dburkett): Do an actual lookup from a walletdb
-	for i := uint32(0); i < uint32(1000); i++ {
-		iAddr := keychain.Address(i)
-		if (*iAddr) == address {
-			addrIdx = &i
-			break
-		}
-	}
-	if addrIdx == nil {
-		return nil, errors.New("address not found")
-	}
-
-	addrSpendKey := keychain.SpendKey(*addrIdx)
-	outputSpendKey := addrSpendKey.Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-
-	blind := (*mw.BlindingFactor)(mw.Hashed(mw.HashTagBlind, sharedSecret[:]))
-
-	senderKey, err := mw.NewSecretKey()
-	if err != nil {
-		return nil, err
-	}
-
-	coin := &mweb.Coin{
-		SpendKey:     outputSpendKey,
-		Blind:        blind,
-		Value:        uint64(*input.MwebAmount),
-		OutputId:     input.MwebOutputId,
-		SenderKey:    senderKey,
-		Address:      &address,
-		SharedSecret: sharedSecret,
-	}
-	return coin, nil
-}
-
 // nonWitnessToWitness extracts the TxOut from the existing NonWitnessUtxo
 // field in the given PSBT input and sets it as type witness by replacing the
 // NonWitnessUtxo field with a WitnessUtxo field. See
@@ -231,24 +177,34 @@ type MwebInputSignatureData struct {
 	inputPubKey *mw.PublicKey
 }
 
-type MwebInputSignerFunc func(
-	features wire.MwebInputFeatureBit,
-	spentOutputId chainhash.Hash,
-	spentOutputPk mw.PublicKey,
-	amount uint64,
-	extraData []byte,
-	keyExchangePubKey *mw.PublicKey,
-	sharedSecret *mw.SecretKey,
-) (*MwebInputSignatureData, error)
+type IMwebInputSigner interface {
+	SignMwebInput(
+		features wire.MwebInputFeatureBit,
+		spentOutputId chainhash.Hash,
+		spentOutputPk mw.PublicKey,
+		amount uint64,
+		extraData []byte,
+		keyExchangePubKey *mw.PublicKey,
+		sharedSecret *mw.SecretKey,
+	) (*MwebInputSignatureData, error)
+}
 
 type Signer struct {
 	// The PSBT packet to sign
 	psbt *Packet
 	// Signs the MWEB input, and returns the signature and other key info needed for finalizing
-	signMwebInputFn MwebInputSignerFunc
+	mwebInputSigner IMwebInputSigner
 }
 
-func (s *Signer) SignMwebTx() (SignOutcome, error) {
+func NewSigner(p *Packet, mwebInputSigner IMwebInputSigner) (*Signer, error) {
+	if err := p.SanityCheck(); err != nil {
+		return nil, err
+	}
+
+	return &Signer{psbt: p, mwebInputSigner: mwebInputSigner}, nil
+}
+
+func (s *Signer) SignMwebComponents() (SignOutcome, error) {
 	p := s.psbt
 
 	var kernelOffset mw.BlindingFactor
@@ -330,7 +286,7 @@ func (s *Signer) signMwebInput(input *PInput) (*MwebInputSignatureData, error) {
 		input.MwebFeatures = &defaultFeatures
 	}
 
-	sigData, err := s.signMwebInputFn(
+	sigData, err := s.mwebInputSigner.SignMwebInput(
 		*input.MwebFeatures,
 		*input.MwebOutputId,
 		*input.MwebOutputPubkey,
@@ -563,28 +519,24 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 	return blind, stealthKey, nil
 }
 
-func exampleMwebInputSignFn(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
+type AddressIndexLookupFunc func(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32
+
+type BasicMwebInputSigner struct {
+	Keychain           *mweb.Keychain
+	LookupAddressIndex AddressIndexLookupFunc
+}
+
+func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
 	if features&wire.MwebInputStealthKeyFeatureBit == 0 {
 		return nil, errors.New("stealth key feature bit is required to ensure key safety")
 	}
-
-	// TODO(dburkett): Use actual master keys
-	masterScanSecret, err := mw.NewSecretKey()
-	if err != nil {
-		return nil, err
-	}
-	masterSpendSecret, err := mw.NewSecretKey()
-	if err != nil {
-		return nil, err
-	}
-	keychain := mweb.Keychain{Scan: masterScanSecret, Spend: masterSpendSecret}
 
 	sharedSecret := spentOutputSharedSecret
 	if sharedSecret == nil {
 		if keyExchangePubKey == nil {
 			return nil, errors.New("key exchange pubkey or shared secret needed")
 		}
-		sharedSecretPk := keyExchangePubKey.Mul(masterScanSecret)
+		sharedSecretPk := keyExchangePubKey.Mul(s.Keychain.Scan)
 		sharedSecret = (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sharedSecretPk[:]))
 	}
 
@@ -592,23 +544,15 @@ func exampleMwebInputSignFn(features wire.MwebInputFeatureBit, spentOutputId cha
 	blind := mw.BlindSwitch(preBlind, amount)
 
 	addrB := spentOutputPk.Div((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-	addrA := addrB.Mul(masterScanSecret)
+	addrA := addrB.Mul(s.Keychain.Scan)
 	address := mw.StealthAddress{Scan: addrA, Spend: addrB}
 
-	var addrIdx *uint32
-	// TODO(dburkett): Do an actual lookup from a walletdb
-	for i := uint32(0); i < uint32(1000); i++ {
-		iAddr := keychain.Address(i)
-		if (*iAddr) == address {
-			addrIdx = &i
-			break
-		}
-	}
+	addrIdx := s.LookupAddressIndex(s.Keychain, &address)
 	if addrIdx == nil {
 		return nil, errors.New("address not found")
 	}
 
-	addrSpendKey := keychain.SpendKey(*addrIdx)
+	addrSpendKey := s.Keychain.SpendKey(*addrIdx)
 	outputSpendKey := addrSpendKey.Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
 
 	var ephemeralKey mw.SecretKey
@@ -652,4 +596,16 @@ func exampleMwebInputSignFn(features wire.MwebInputFeatureBit, spentOutputId cha
 		stealthOffsetTweak: *ephemeralKey.Sub(outputSpendKey),
 		inputPubKey:        inputPubKey,
 	}, nil
+}
+
+func NaiveAddressLookup(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32 {
+	var addrIdx *uint32
+	for i := uint32(0); i < uint32(1000); i++ {
+		iAddr := keychain.Address(i)
+		if (*iAddr) == *stealthAddress {
+			addrIdx = &i
+			break
+		}
+	}
+	return addrIdx
 }
