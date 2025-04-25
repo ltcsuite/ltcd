@@ -420,11 +420,11 @@ func VerifyInputPrevOutpointsEqual(ins1, ins2 []*wire.TxIn) error {
 	return nil
 }
 
-// verifyInputOutputLen makes sure a packet is non-nil, contains a non-nil wire
+// VerifyInputOutputLen makes sure a packet is non-nil, contains a non-nil wire
 // transaction if PSBTv0, and that the wire input/output lengths match the partial input/
 // output lengths. A caller also can specify if they expect any inputs and/or
 // outputs to be contained in the packet.
-func verifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
+func VerifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
 	if packet == nil {
 		return fmt.Errorf("PSBT packet cannot be nil")
 	}
@@ -464,7 +464,7 @@ func verifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
 // type and the second reason is that the sighash calculation for taproot inputs
 // include the previous output pkscripts.
 func InputsReadyToSign(packet *Packet) error {
-	err := verifyInputOutputLen(packet, true, true)
+	err := VerifyInputOutputLen(packet, true, true)
 	if err != nil {
 		return err
 	}

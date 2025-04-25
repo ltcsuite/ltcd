@@ -683,7 +683,7 @@ func (p *Packet) B64Encode() (string, error) {
 // whether the final extraction to a network serialized signed
 // transaction will be possible.
 func (p *Packet) IsComplete() bool {
-	if p.hasMwebComponents() {
+	if p.HasMwebComponents() {
 		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil || len(p.Kernels) == 0 {
 			return false
 		}
@@ -716,7 +716,7 @@ func (p *Packet) SanityCheck() error {
 			return ErrInvalidRawTxSigned
 		}
 
-		if p.hasMwebComponents() {
+		if p.HasMwebComponents() {
 			return ErrInvalidPsbtFormat
 		}
 	}
@@ -765,7 +765,7 @@ func (p *Packet) GetTxFee() (ltcutil.Amount, error) {
 	return fee, nil
 }
 
-func (p *Packet) hasMwebComponents() bool {
+func (p *Packet) HasMwebComponents() bool {
 	if p.MwebTxOffset != nil || p.MwebStealthOffset != nil || len(p.Kernels) != 0 {
 		return true
 	}

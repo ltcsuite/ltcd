@@ -24,7 +24,7 @@ import (
 func InPlaceSort(packet *Packet) error {
 	// To make sure we don't run into any nil pointers or array index
 	// violations during sorting, do a very basic sanity check first.
-	err := verifyInputOutputLen(packet, false, false)
+	err := VerifyInputOutputLen(packet, false, false)
 	if err != nil {
 		return err
 	}
