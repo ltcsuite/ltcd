@@ -144,6 +144,11 @@ const (
 	// the deployment of BIPS 340, 341 and 342.
 	DeploymentTaproot
 
+	// DeploymentMweb defines the rule change deployment ID for the
+	// MWEB soft-fork package. The MWEB package includes the deployment
+	// of LIPS 2, 3 and 4.
+	DeploymentMweb
+
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
 
@@ -196,6 +201,10 @@ type Params struct {
 	// CoinbaseMaturity is the number of blocks required before newly mined
 	// coins (coinbase transactions) can be spent.
 	CoinbaseMaturity uint16
+
+	// MwebPegoutMaturity is the number of blocks required before coins
+	// pegged-out from MWEB can be spent.
+	MwebPegoutMaturity uint16
 
 	// SubsidyReductionInterval is the interval of blocks before the subsidy
 	// is reduced.
@@ -258,6 +267,9 @@ type Params struct {
 	// in BIP 173.
 	Bech32HRPSegwit string
 
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb string
+
 	// Address encoding magics
 	PubKeyHashAddrID        byte // First byte of a P2PKH address
 	ScriptHashAddrID        byte // First byte of a P2SH address
@@ -290,11 +302,12 @@ var MainNetParams = Params{
 	GenesisBlock:             &genesisBlock,
 	GenesisHash:              &genesisHash,
 	PowLimit:                 mainPowLimit,
-	PowLimitBits:             504365055,
+	PowLimitBits:             0x1e0ffff0,
 	BIP0034Height:            710000,
 	BIP0065Height:            918684,
 	BIP0066Height:            811879,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 840000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -371,14 +384,21 @@ var MainNetParams = Params{
 		},
 		DeploymentTaproot: {
 			BitNumber: 2,
-			DeploymentStarter: NewMedianTimeDeploymentStarter(
-				time.Unix(1619222400, 0), // April 24th, 2021 UTC.
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2161152, // End November 2021
 			),
-			DeploymentEnder: NewMedianTimeDeploymentEnder(
-				time.Unix(1628640000, 0), // August 11th, 2021 UTC.
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2370816, // 364 days later
 			),
-			CustomActivationThreshold: 1815, // 90%
-			MinActivationHeight:       709_632,
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2217600, // End Feb 2022
+			),
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2427264, // 364 days later
+			),
 		},
 	},
 
@@ -388,6 +408,9 @@ var MainNetParams = Params{
 	// Human-readable part for Bech32 encoded segwit addresses, as defined in
 	// BIP 173.
 	Bech32HRPSegwit: "ltc", // always ltc for main net
+
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "ltcmweb", // always ltcmweb for main net
 
 	// Address encoding magics
 	PubKeyHashAddrID:        0x30, // starts with L
@@ -421,6 +444,7 @@ var RegressionNetParams = Params{
 	PowLimitBits:             0x207fffff,
 	PoWNoRetargeting:         true,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	BIP0034Height:            100000000, // Not active - Permit ver 1 blocks
 	BIP0065Height:            1351,      // Used by regression tests
 	BIP0066Height:            1251,      // Used by regression tests
@@ -488,7 +512,15 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 108, // Only needs 75% hash rate.
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1601450001, 0), // September 30, 2020 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires.
+			),
 		},
 	},
 
@@ -498,6 +530,9 @@ var RegressionNetParams = Params{
 	// Human-readable part for Bech32 encoded segwit addresses, as defined in
 	// BIP 173.
 	Bech32HRPSegwit: "rltc", // always rltc for reg test net
+
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "tmweb", // always tmweb for reg test net
 
 	// Address encoding magics
 	PubKeyHashAddrID: 0x6f, // starts with m or n
@@ -530,11 +565,12 @@ var TestNet4Params = Params{
 	GenesisBlock:             &testNet4GenesisBlock,
 	GenesisHash:              &testNet4GenesisHash,
 	PowLimit:                 testNet4PowLimit,
-	PowLimitBits:             504365055,
+	PowLimitBits:             0x1e0fffff,
 	BIP0034Height:            76,
 	BIP0065Height:            76,
 	BIP0066Height:            76,
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 840000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -600,13 +636,21 @@ var TestNet4Params = Params{
 		},
 		DeploymentTaproot: {
 			BitNumber: 2,
-			DeploymentStarter: NewMedianTimeDeploymentStarter(
-				time.Unix(1619222400, 0), // April 24th, 2021 UTC.
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2225664, // March 2022
 			),
-			DeploymentEnder: NewMedianTimeDeploymentEnder(
-				time.Unix(1628640000, 0), // August 11th, 2021 UTC
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2435328, // 364 days later
 			),
-			CustomActivationThreshold: 1512, // 75%
+		},
+		DeploymentMweb: {
+			BitNumber: 4,
+			DeploymentStarter: NewBlockHeightDeploymentStarter(
+				2209536, // Jan/Feb 2022
+			),
+			DeploymentEnder: NewBlockHeightDeploymentEnder(
+				2419200, // 364 days later
+			),
 		},
 	},
 
@@ -616,6 +660,9 @@ var TestNet4Params = Params{
 	// Human-readable part for Bech32 encoded segwit addresses, as defined in
 	// BIP 173.
 	Bech32HRPSegwit: "tltc", // always tltc for test net
+
+	// Human-readable part for Bech32 encoded mweb addresses.
+	Bech32HRPMweb: "tmweb", // always tmweb for test net
 
 	// Address encoding magics
 	PubKeyHashAddrID:        0x6f, // starts with m or n
@@ -655,6 +702,7 @@ var SimNetParams = Params{
 	BIP0065Height:            0, // Always active on simnet
 	BIP0066Height:            0, // Always active on simnet
 	CoinbaseMaturity:         100,
+	MwebPegoutMaturity:       6,
 	SubsidyReductionInterval: 210000,
 	TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 	TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -783,6 +831,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		BIP0065Height:            1,
 		BIP0066Height:            1,
 		CoinbaseMaturity:         100,
+		MwebPegoutMaturity:       6,
 		SubsidyReductionInterval: 210000,
 		TargetTimespan:           (time.Hour * 24 * 3) + (time.Hour * 12), // 3.5 days
 		TargetTimePerBlock:       (time.Minute * 2) + (time.Second * 30),  // 2.5 minutes
@@ -895,6 +944,7 @@ var (
 	pubKeyHashAddrIDs    = make(map[byte]struct{})
 	scriptHashAddrIDs    = make(map[byte]struct{})
 	bech32SegwitPrefixes = make(map[string]struct{})
+	bech32MwebPrefixes   = make(map[string]struct{})
 	hdPrivToPubKeyIDs    = make(map[[4]byte][]byte)
 )
 
@@ -928,6 +978,11 @@ func Register(params *Params) error {
 	// A valid Bech32 encoded segwit address always has as prefix the
 	// human-readable part for the given net followed by '1'.
 	bech32SegwitPrefixes[params.Bech32HRPSegwit+"1"] = struct{}{}
+
+	// A valid Bech32 encoded MWEB address always has as prefix the
+	// human-readable part for the given net followed by '1'.
+	bech32MwebPrefixes[params.Bech32HRPMweb+"1"] = struct{}{}
+
 	return nil
 }
 
@@ -967,6 +1022,15 @@ func IsScriptHashAddrID(id byte) bool {
 func IsBech32SegwitPrefix(prefix string) bool {
 	prefix = strings.ToLower(prefix)
 	_, ok := bech32SegwitPrefixes[prefix]
+	return ok
+}
+
+// IsBech32MwebPrefix returns whether the prefix is a known prefix for MWEB
+// addresses on any default or registered network.  This is used when decoding
+// an address string into a specific address type.
+func IsBech32MwebPrefix(prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	_, ok := bech32MwebPrefixes[prefix]
 	return ok
 }
 

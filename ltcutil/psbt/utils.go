@@ -226,7 +226,7 @@ func serializeKVPairWithType(w io.Writer, kt uint8, keydata []byte,
 
 // getKey retrieves a single key - both the key type and the keydata (if
 // present) from the stream and returns the key type as an integer, or -1 if
-// the key was of zero length. This integer is is used to indicate the presence
+// the key was of zero length. This integer is used to indicate the presence
 // of a separator byte which indicates the end of a given key-value pair list,
 // and the keydata as a byte slice or nil if none is present.
 func getKey(r io.Reader) (int, []byte, error) {
@@ -254,19 +254,63 @@ func getKey(r io.Reader) (int, []byte, error) {
 	if _, err := io.ReadFull(r, keyTypeAndData[:]); err != nil {
 		return -1, nil, err
 	}
+	keyReader := bytes.NewReader(keyTypeAndData[:])
 
-	keyType := int(string(keyTypeAndData)[0])
+	// BIP-0174 specifies that the key shall begin with a varint indicating the type.
+	// The remaining bytes, if any, are the key data.
+	varKeyType, err := wire.ReadVarInt(keyReader, 0)
+	if err != nil {
+		return -1, nil, ErrInvalidPsbtFormat
+	}
+	keyType := int(varKeyType)
 
 	// Note that the second return value will usually be empty, since most
 	// keys contain no more than the key type byte.
-	if len(keyTypeAndData) == 1 {
+	if keyReader.Len() == 0 {
 		return keyType, nil, nil
 	}
 
-	// Otherwise, we return the key, along with any data that it may
-	// contain.
-	return keyType, keyTypeAndData[1:], nil
+	// Otherwise, we return the key, along with any data that it may contain.
+	keyData := make([]byte, keyReader.Len())
+	if _, err := keyReader.Read(keyData); err != nil {
+		return -1, nil, err
+	}
 
+	return keyType, keyData, nil
+}
+
+type keyValuePair struct {
+	keyType   uint8
+	keyData   []byte
+	valueData []byte
+}
+
+// Returns a keyValuePair, defined by BIP-0174 as <keypair>.
+// A separator will be returned as a nil keyValuePair and error.
+// <keypair> := <key> <value>
+// <key> := <keylen> <keytype> <keydata>
+// <value> := <valuelen> <valuedata>
+func getKVPair(r io.Reader) (*keyValuePair, error) {
+	keyType, keyData, err := getKey(r)
+	if err != nil {
+		return nil, err
+	}
+	if keyType == -1 {
+		return nil, nil
+	}
+
+	value, err := wire.ReadVarBytes(
+		r, 0, MaxPsbtValueLength, "PSBT value",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keyValuePair{
+		keyType:   uint8(keyType),
+		keyData:   keyData,
+		valueData: value,
+	}, nil
 }
 
 // readTxOut is a limited version of wire.ReadTxOut, because the latter is not
@@ -277,7 +321,12 @@ func readTxOut(txout []byte) (*wire.TxOut, error) {
 	}
 
 	valueSer := binary.LittleEndian.Uint64(txout[:8])
-	scriptPubKey := txout[9:]
+
+	scriptReader := bytes.NewReader(txout[8:])
+	scriptPubKey, err := wire.ReadVarBytes(scriptReader, 0, MaxPsbtValueLength, "scriptPubKey")
+	if err != nil {
+		return nil, err
+	}
 
 	return wire.NewTxOut(int64(valueSer), scriptPubKey), nil
 }
@@ -289,7 +338,7 @@ func SumUtxoInputValues(packet *Packet) (int64, error) {
 	// We take the TX ins of the unsigned TX as the truth for how many
 	// inputs there should be, as the fields in the extra data part of the
 	// PSBT can be empty.
-	if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
+	if packet.PsbtVersion == 0 && len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
 		return 0, fmt.Errorf("TX input length doesn't match PSBT " +
 			"input length")
 	}
@@ -316,6 +365,9 @@ func SumUtxoInputValues(packet *Packet) (int64, error) {
 			}
 
 			inputSum += utxOuts[txIn.PreviousOutPoint.Index].Value
+
+		case in.MwebAmount != nil:
+			inputSum += int64(*in.MwebAmount)
 
 		default:
 			return 0, fmt.Errorf("input %d has no UTXO information",
@@ -369,28 +421,34 @@ func VerifyInputPrevOutpointsEqual(ins1, ins2 []*wire.TxIn) error {
 }
 
 // VerifyInputOutputLen makes sure a packet is non-nil, contains a non-nil wire
-// transaction and that the wire input/output lengths match the partial input/
+// transaction if PSBTv0, and that the wire input/output lengths match the partial input/
 // output lengths. A caller also can specify if they expect any inputs and/or
 // outputs to be contained in the packet.
 func VerifyInputOutputLen(packet *Packet, needInputs, needOutputs bool) error {
-	if packet == nil || packet.UnsignedTx == nil {
+	if packet == nil {
 		return fmt.Errorf("PSBT packet cannot be nil")
 	}
 
-	if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
-		return fmt.Errorf("invalid PSBT, wire inputs don't match " +
-			"partial inputs")
-	}
-	if len(packet.UnsignedTx.TxOut) != len(packet.Outputs) {
-		return fmt.Errorf("invalid PSBT, wire outputs don't match " +
-			"partial outputs")
+	if packet.PsbtVersion == 0 {
+		if packet.UnsignedTx == nil {
+			return fmt.Errorf("invalid PSBT, unsigned tx cannot be nil for PSBTv0")
+		}
+
+		if len(packet.UnsignedTx.TxIn) != len(packet.Inputs) {
+			return fmt.Errorf("invalid PSBT, wire inputs don't match " +
+				"partial inputs")
+		}
+		if len(packet.UnsignedTx.TxOut) != len(packet.Outputs) {
+			return fmt.Errorf("invalid PSBT, wire outputs don't match " +
+				"partial outputs")
+		}
 	}
 
-	if needInputs && len(packet.UnsignedTx.TxIn) == 0 {
+	if needInputs && len(packet.Inputs) == 0 {
 		return fmt.Errorf("PSBT packet must contain at least one " +
 			"input")
 	}
-	if needOutputs && len(packet.UnsignedTx.TxOut) == 0 {
+	if needOutputs && len(packet.Outputs) == 0 {
 		return fmt.Errorf("PSBT packet must contain at least one " +
 			"output")
 	}
@@ -411,48 +469,29 @@ func InputsReadyToSign(packet *Packet) error {
 		return err
 	}
 
-	for i := range packet.UnsignedTx.TxIn {
-		input := packet.Inputs[i]
-		if input.NonWitnessUtxo == nil && input.WitnessUtxo == nil {
+	for i, input := range packet.Inputs {
+		if input.isMWEB() {
+			if input.MwebAmount == nil {
+				return errors.New("input amount missing")
+			} else if input.MwebOutputPubkey == nil {
+				return errors.New("spent output pubkey missing")
+			} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
+				return errors.New("input shared secret missing")
+			}
+		} else if input.NonWitnessUtxo == nil && input.WitnessUtxo == nil {
 			return fmt.Errorf("invalid PSBT, input with index %d "+
 				"missing utxo information", i)
 		}
 	}
 
+	// TODO(dburkett): Check MWEB outputs
+
 	return nil
 }
 
-// NewFromSignedTx is a utility function to create a packet from an
-// already-signed transaction. Returned are: an unsigned transaction
-// serialization, a list of scriptSigs, one per input, and a list of witnesses,
-// one per input.
-func NewFromSignedTx(tx *wire.MsgTx) (*Packet, [][]byte,
-	[]wire.TxWitness, error) {
-
-	scriptSigs := make([][]byte, 0, len(tx.TxIn))
-	witnesses := make([]wire.TxWitness, 0, len(tx.TxIn))
-	tx2 := tx.Copy()
-
-	// Blank out signature info in inputs
-	for i, tin := range tx2.TxIn {
-		tin.SignatureScript = nil
-		scriptSigs = append(scriptSigs, tx.TxIn[i].SignatureScript)
-		tin.Witness = nil
-		witnesses = append(witnesses, tx.TxIn[i].Witness)
-	}
-
-	// Outputs always contain: (value, scriptPubkey) so don't need
-	// amending.  Now tx2 is tx with all signing data stripped out
-	unsignedPsbt, err := NewFromUnsignedTx(tx2)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return unsignedPsbt, scriptSigs, witnesses, nil
-}
-
-// FindLeafScript attempts to locate the leaf script of a given target Tap Leaf
+// findLeafScript attempts to locate the leaf script of a given target Tap Leaf
 // hash in the list of leaf scripts of the given input.
-func FindLeafScript(pInput *PInput,
+func findLeafScript(pInput *PInput,
 	targetLeafHash []byte) (*TaprootTapLeafScript, error) {
 
 	for _, leaf := range pInput.TaprootLeafScript {
@@ -468,4 +507,33 @@ func FindLeafScript(pInput *PInput,
 
 	return nil, fmt.Errorf("leaf script for target leaf hash %x not "+
 		"found in input", targetLeafHash)
+}
+
+func uint32Ptr(v uint32) *uint32 {
+	return &v
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+type keySet struct {
+	seen map[string]struct{}
+}
+
+func newKeySet() *keySet {
+	return &keySet{
+		seen: make(map[string]struct{}),
+	}
+}
+
+func (ks *keySet) addKey(keyType uint8, keyData []byte) bool {
+	fullKey := append([]byte{keyType}, keyData...) // reconstruct original key
+	keyStr := string(fullKey)
+
+	if _, exists := ks.seen[keyStr]; exists {
+		return false
+	}
+	ks.seen[keyStr] = struct{}{}
+	return true
 }

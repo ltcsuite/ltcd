@@ -27,19 +27,19 @@ func TestBech32(t *testing.T) {
 		{"abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw", nil},
 		{"11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqc8247j", nil},
 		{"split1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", nil},
-		{"split1checkupstagehandshakeupstreamerranterredcaperred2y9e2w", ErrInvalidChecksum{"2y9e3w", "2y9e3wlc445v", "2y9e2w"}}, // invalid checksum
-		{"s lit1checkupstagehandshakeupstreamerranterredcaperredp8hs2p", ErrInvalidCharacter(' ')},                               // invalid character (space) in hrp
-		{"spl\x7Ft1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", ErrInvalidCharacter(127)},                            // invalid character (DEL) in hrp
-		{"split1cheo2y9e2w", ErrNonCharsetChar('o')},                                                                             // invalid character (o) in data part
-		{"split1a2y9w", ErrInvalidSeparatorIndex(5)},                                                                             // too short data part
-		{"1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", ErrInvalidSeparatorIndex(0)},                                 // empty hrp
-		{"11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqc8247j", ErrInvalidLength(91)},    // too long
+		{"split1checkupstagehandshakeupstreamerranterredcaperred2y9e2w", ErrInvalidChecksum{"2y9e3w", "2y9e3wlc445v", "2y9e2w"}},                                       // invalid checksum
+		{"s lit1checkupstagehandshakeupstreamerranterredcaperredp8hs2p", ErrInvalidCharacter(' ')},                                                                     // invalid character (space) in hrp
+		{"spl\x7Ft1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", ErrInvalidCharacter(127)},                                                                  // invalid character (DEL) in hrp
+		{"split1cheo2y9e2w", ErrNonCharsetChar('o')},                                                                                                                   // invalid character (o) in data part
+		{"split1a2y9w", ErrInvalidSeparatorIndex(5)},                                                                                                                   // too short data part
+		{"1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", ErrInvalidSeparatorIndex(0)},                                                                       // empty hrp
+		{"11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzt404u", ErrInvalidLength(131)}, // too long
 
 		// Additional test vectors used in litecoin core
 		{" 1nwldj5", ErrInvalidCharacter(' ')},
 		{"\x7f" + "1axkwrx", ErrInvalidCharacter(0x7f)},
 		{"\x801eym55h", ErrInvalidCharacter(0x80)},
-		{"an84characterslonghumanreadablepartthatcontainsthenumber1andtheexcludedcharactersbio1569pvx", ErrInvalidLength(91)},
+		{"anonehundredandthirtycharacterslonghumanreadablepartthatcontainsthetheexcludedcharactersbiowithpoopypoopypoopypoopyandnumber110zahja", ErrInvalidLength(132)},
 		{"pzry9x0s0muk", ErrInvalidSeparatorIndex(-1)},
 		{"1pzry9x0s0muk", ErrInvalidSeparatorIndex(0)},
 		{"x1b4n0q5v", ErrNonCharsetChar(98)},
@@ -108,7 +108,7 @@ func TestBech32M(t *testing.T) {
 		{"\x201xj0phk", ErrInvalidCharacter('\x20')},
 		{"\x7f1g6xzxy", ErrInvalidCharacter('\x7f')},
 		{"\x801vctc34", ErrInvalidCharacter('\x80')},
-		{"an84characterslonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11d6pts4", ErrInvalidLength(91)},
+		{"anonehundredandthirtycharacterslonghumanreadablepartthatcontainsthetheexcludedcharactersbiowithpoopypoopypoopypoopyandnumber110zahja", ErrInvalidLength(132)},
 		{"qyrz8wqd2c9m", ErrInvalidSeparatorIndex(-1)},
 		{"1qyrz8wqd2c9m", ErrInvalidSeparatorIndex(0)},
 		{"y1b0jsk6g", ErrNonCharsetChar(98)},
@@ -184,14 +184,15 @@ func TestBech32DecodeGeneric(t *testing.T) {
 		{"11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqc8247j", Version0},
 		{"split1checkupstagehandshakeupstreamerranterredcaperred2y9e3w", Version0},
 
-		{"BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4", Version0},
-		{"tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7", Version0},
-		{"bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y", VersionM},
-		{"BC1SW50QGDZ25J", VersionM},
-		{"bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs", VersionM},
-		{"tb1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrxh6hy", Version0},
-		{"tb1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesf3hn0c", VersionM},
-		{"bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0", VersionM},
+		// LITECOIN: disabled all bech32m tests as not enabled in litecoin core
+		{"LTC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KGMN4N9", Version0},
+		{"tltc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qsnr4fp", Version0},
+		// {"ltc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k0tul4w", VersionM},
+		// {"LTC1SW50QZGYDF5", VersionM},
+		// {"ltc1zw508d6qejxtdg4y5r3zarvaryvdzur3w", VersionM},
+		{"tltc1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesu9tmgm", Version0},
+		// {"tltc1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrwm749", VersionM},
+		// {"ltc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq5w2wdg", VersionM},
 	}
 	for i, test := range tests {
 		_, _, version, err := DecodeGeneric(test.str)
@@ -297,10 +298,10 @@ func TestMixedCaseEncode(t *testing.T) {
 	}
 }
 
-// TestCanDecodeUnlimtedBech32 tests whether decoding a large bech32 string works
+// TestCanDecodeUnlimitedBech32 tests whether decoding a large bech32 string works
 // when using the DecodeNoLimit version
-func TestCanDecodeUnlimtedBech32(t *testing.T) {
-	input := "11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq5kx0yd"
+func TestCanDecodeUnlimitedBech32(t *testing.T) {
+	input := "11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzt404u"
 
 	// Sanity check that an input of this length errors on regular Decode()
 	_, _, err := Decode(input)
@@ -319,7 +320,7 @@ func TestCanDecodeUnlimtedBech32(t *testing.T) {
 		t.Fatalf("Unexpected hrp: %v", hrp)
 	}
 	decodedHex := fmt.Sprintf("%x", data)
-	expected := "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000"
+	expected := "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 	if decodedHex != expected {
 		t.Fatalf("Unexpected decoded data: %s", decodedHex)
 	}
@@ -391,8 +392,8 @@ func TestBech32Base256(t *testing.T) {
 		err:     ErrInvalidSeparatorIndex(-1),
 	}, {
 		name:    "too long by one char",
-		encoded: "11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqc8247j",
-		err:     ErrInvalidLength(91),
+		encoded: "11qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzt404u",
+		err:     ErrInvalidLength(131),
 	}, {
 		name:    "invalid due to mixed case in hrp",
 		encoded: "aBcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw",
@@ -668,7 +669,7 @@ func BenchmarkConvertBitsDown(b *testing.B) {
 	}
 }
 
-// BenchmarkConvertBitsDown benchmarks the speed and memory allocation behavior
+// BenchmarkConvertBitsUp benchmarks the speed and memory allocation behavior
 // of ConvertBits when converting from a lower base into a higher base (e.g. 5
 // => 8).
 //

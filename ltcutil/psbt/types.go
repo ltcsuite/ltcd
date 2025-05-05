@@ -30,6 +30,15 @@ const (
 	// extended public key.
 	XpubType GlobalType = 1
 
+	TxVersionType           GlobalType = 2
+	FallbackLockTimeType    GlobalType = 3
+	InputCountType          GlobalType = 4
+	OutputCountType         GlobalType = 5
+	TxModifiableType        GlobalType = 6
+	MwebTxOffsetType        GlobalType = 0x90
+	MwebTxStealthOffsetType GlobalType = 0x91
+	MwebKernelCountType     GlobalType = 0x92
+
 	// VersionType houses the global version number of this PSBT. There is
 	// no key (only contains the byte type), then the value if omitted, is
 	// assumed to be zero.
@@ -114,6 +123,18 @@ const (
 	// scripts necessary for the input to pass validation.
 	FinalScriptWitnessType InputType = 8
 
+	// TODO: PSBT_IN_RIPEMD160 (0x0A), PSBT_IN_SHA256 (0x0B), PSBT_IN_HASH160 (0x0C), PSBT_IN_HASH256 (0x0D)
+
+	PrevoutHashInputType InputType = 0x0E
+
+	PrevoutIndexInputType InputType = 0x0F
+
+	SequenceInputType InputType = 0x10
+
+	RequiredTimeLocktimeInputType InputType = 0x11
+
+	RequiredHeightLocktimeInputType InputType = 0x12
+
 	// TaprootKeySpendSignatureType is an empty key ({0x13}). The value is
 	// a 64-byte Schnorr signature or a 65-byte Schnorr signature with the
 	// one byte sighash type appended to it.
@@ -151,6 +172,20 @@ const (
 	// 32-byte hash denoting the root hash of a merkle tree of scripts.
 	TaprootMerkleRootType InputType = 0x18
 
+	MwebSpentOutputIdType        InputType = 0x90
+	MwebSpentOutputCommitType    InputType = 0x91
+	MwebSpentOutputPubKeyType    InputType = 0x92
+	MwebInputPubKeyType          InputType = 0x93
+	MwebInputFeaturesType        InputType = 0x94
+	MwebInputSignatureType       InputType = 0x95
+	MwebAddressIndexType         InputType = 0x96
+	MwebInputAmountType          InputType = 0x97
+	MwebSharedSecretType         InputType = 0x98
+	MwebKeyExchangePubKeyType    InputType = 0x99
+	MwebMasterScanKeyOriginType  InputType = 0x9A
+	MwebMasterSpendKeyOriginType InputType = 0x9B
+	MwebInputExtraDataType       InputType = 0x9C
+
 	// ProprietaryInputType is a custom type for use by devs.
 	//
 	// The key ({0xFC}|<prefix>|{subtype}|{key data}), is a Variable length
@@ -184,6 +219,10 @@ const (
 	// Public keys are those needed to spend this output.
 	Bip32DerivationOutputType OutputType = 2
 
+	AmountOutputType OutputType = 3
+
+	PKScriptOutputType OutputType = 4
+
 	// TaprootInternalKeyOutputType is an empty key ({0x05}). The value is
 	// an x-only pubkey denoting the internal public key used for
 	// constructing a taproot key.
@@ -200,4 +239,29 @@ const (
 	// followed by said number of 32-byte leaf hashes. The rest of the value
 	// is then identical to the Bip32DerivationInputType value.
 	TaprootBip32DerivationOutputType OutputType = 7
+
+	MwebStealthAddressOutputType OutputType = 0x90
+	MwebCommitOutputType         OutputType = 0x91
+	MwebFeaturesOutputType       OutputType = 0x92
+	MwebSenderPubKeyOutputType   OutputType = 0x93
+	MwebOutputPubKeyOutputType   OutputType = 0x94
+	MwebStandardFieldsOutputType OutputType = 0x95
+	MwebRangeProofOutputType     OutputType = 0x96
+	MwebSignatureOutputType      OutputType = 0x97
+	MwebExtraDataOutputType      OutputType = 0x98
+)
+
+// KernelType is the set of types defined per MWEB kernel within the PSBT.
+type KernelType uint32
+
+const (
+	MwebKernelExcessCommitType  KernelType = 0
+	MwebKernelStealthCommitType KernelType = 1
+	MwebKernelFeeType           KernelType = 2
+	MwebKernelPeginAmountType   KernelType = 3
+	MwebKernelPegoutType        KernelType = 4
+	MwebKernelLockHeightType    KernelType = 5
+	MwebKernelFeaturesType      KernelType = 6
+	MwebKernelExtraDataType     KernelType = 7
+	MwebKernelSignatureType     KernelType = 8
 )

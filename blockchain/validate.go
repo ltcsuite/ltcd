@@ -114,6 +114,31 @@ func IsCoinBase(tx *ltcutil.Tx) bool {
 	return IsCoinBaseTx(tx.MsgTx())
 }
 
+// IsHogExTx determines whether or not a transaction is probably a
+// MWEB HogEx transaction.
+func IsHogExTx(msgTx *wire.MsgTx) bool {
+	if msgTx.IsHogEx {
+		return true
+	}
+
+	if len(msgTx.TxIn) == 0 || len(msgTx.TxOut) == 0 {
+		return false
+	}
+
+	if msgTx.TxIn[0].PreviousOutPoint.Index != 0 {
+		return false
+	}
+
+	ver, prog, err := txscript.ExtractWitnessProgramInfo(
+		msgTx.TxOut[0].PkScript,
+	)
+	if err != nil {
+		return false
+	}
+
+	return ver == txscript.MwebHogAddrWitnessVersion && len(prog) == 32
+}
+
 // SequenceLockActive determines if a transaction's sequence locks have been
 // met, meaning that all the inputs of a given transaction have reached a
 // height or time sufficient for their relative lock-time maturity.

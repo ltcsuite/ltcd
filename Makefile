@@ -4,16 +4,16 @@ LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
 
-GO_BIN := ${GOPATH}/bin
+GOPATH ?= $(shell go env GOPATH)
+GO_BIN := $(GOPATH)/bin
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 
 LINT_COMMIT := v1.18.0
 GOACC_COMMIT := 80342ae2e0fcf265e99e76bcc4efd022c7c3811b
 
-DEPGET := cd /tmp && GO111MODULE=on go get -v
+GOINSTALL := GO111MODULE=on go install -v
 GOBUILD := GO111MODULE=on go build -v
-GOINSTALL := GO111MODULE=on go install -v 
 DEV_TAGS := rpctest
 GOTEST_DEV = GO111MODULE=on go test -v -tags=$(DEV_TAGS)
 GOTEST := GO111MODULE=on go test -v
@@ -49,15 +49,15 @@ all: build check
 
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
-	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
+	$(GOINSTALL) $(LINT_PKG)@$(LINT_COMMIT)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
-	$(DEPGET) $(GOACC_PKG)@$(GOACC_COMMIT)
+	$(GOINSTALL) $(GOACC_PKG)@$(GOACC_COMMIT)
 
 goimports:
 	@$(call print, "Installing goimports.")
-	$(DEPGET) $(GOIMPORTS_PKG)
+	$(GOINSTALL) $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -84,17 +84,14 @@ unit:
 	cd ltcutil; $(GOTEST_DEV) ./... -test.timeout=20m
 	cd ltcutil/psbt; $(GOTEST_DEV) ./... -test.timeout=20m
 
-unit-cover: $(GOACC_BIN)
+unit-cover:
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC_BIN) ./...
-	
-	# We need to remove the /v2 pathing from the module to have it work
-	# nicely with the CI tool we use to render live code coverage.
-	cd btcec; $(GOACC_BIN) ./...; sed -i.bak 's/v2\///g' coverage.txt
+	$(GOINSTALL) $(GOACC_PKG)@$(GOACC_COMMIT)
+	$(GO_BIN)/go-acc ./...
 
-	cd ltcutil; $(GOACC_BIN) ./...
-
-	cd ltcutil/psbt; $(GOACC_BIN) ./...
+	cd btcec; $(GO_BIN)/go-acc ./...; sed -i.bak 's/v2\///g' coverage.txt
+	cd ltcutil; $(GO_BIN)/go-acc ./...
+	cd ltcutil/psbt; $(GO_BIN)/go-acc ./...
 
 unit-race:
 	@$(call print, "Running unit race tests.")

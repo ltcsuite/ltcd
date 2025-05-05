@@ -107,6 +107,11 @@ func IsNullData(script []byte) bool {
 	return isNullDataScript(scriptVersion, script)
 }
 
+// IsMweb returns true if the script encodes an MWEB address, false otherwise.
+func IsMweb(script []byte) bool {
+	return isMwebScript(script)
+}
+
 // ExtractWitnessProgramInfo attempts to extract the witness program version,
 // as well as the witness program itself from the passed script.
 func ExtractWitnessProgramInfo(script []byte) (int, []byte, error) {
@@ -519,6 +524,8 @@ func IsUnspendable(pkScript []byte) bool {
 		return true
 	case len(pkScript) > MaxScriptSize:
 		return true
+	case IsMweb(pkScript):
+		return false
 	}
 
 	// The script is unspendable if it is guaranteed to fail at execution.

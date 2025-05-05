@@ -50,34 +50,51 @@ type sortableOutputs struct {
 // For sortableInputs and sortableOutputs, three functions are needed to make
 // them sortable with sort.Sort() -- Len, Less, and Swap.
 // Len and Swap are trivial. Less is BIP 69 specific.
-func (s *sortableInputs) Len() int { return len(s.p.UnsignedTx.TxIn) }
-func (s sortableOutputs) Len() int { return len(s.p.UnsignedTx.TxOut) }
+func (s *sortableInputs) Len() int { return len(s.p.Inputs) }
+func (s sortableOutputs) Len() int { return len(s.p.Outputs) }
 
 // Swap swaps two inputs.
 func (s *sortableInputs) Swap(i, j int) {
 	tx := s.p.UnsignedTx
-	tx.TxIn[i], tx.TxIn[j] = tx.TxIn[j], tx.TxIn[i]
+	// PSBTv2: UnsignedTx will be nil for psbtVersion >= 2
+	if tx != nil {
+		tx.TxIn[i], tx.TxIn[j] = tx.TxIn[j], tx.TxIn[i]
+	}
 	s.p.Inputs[i], s.p.Inputs[j] = s.p.Inputs[j], s.p.Inputs[i]
 }
 
 // Swap swaps two outputs.
 func (s *sortableOutputs) Swap(i, j int) {
 	tx := s.p.UnsignedTx
-	tx.TxOut[i], tx.TxOut[j] = tx.TxOut[j], tx.TxOut[i]
+	// PSBTv2: UnsignedTx will be nil for psbtVersion >= 2
+	if tx != nil {
+		tx.TxOut[i], tx.TxOut[j] = tx.TxOut[j], tx.TxOut[i]
+	}
 	s.p.Outputs[i], s.p.Outputs[j] = s.p.Outputs[j], s.p.Outputs[i]
 }
 
 // Less is the input comparison function. First sort based on input hash
 // (reversed / rpc-style), then index.
+// MWEB inputs will be moved after non-MWEB inputs, and will be sorted by spent output id.
 func (s *sortableInputs) Less(i, j int) bool {
-	ins := s.p.UnsignedTx.TxIn
+	iPrevOut, iMwebSpentOutputId := s.p.getPrevOut(i)
+	jPrevOut, jMwebSpentOutputId := s.p.getPrevOut(j)
 
-	// Input hashes are the same, so compare the index.
-	ihash := ins[i].PreviousOutPoint.Hash
-	jhash := ins[j].PreviousOutPoint.Hash
+	// getPrevOut returns nil for MWEB inputs. Make sure those after non-MWEB inputs.
+	if iPrevOut == nil && jPrevOut == nil {
+		// Both are MWEB inputs. Sort by MWEB spent output ID
+		return bytes.Compare(iMwebSpentOutputId[:], jMwebSpentOutputId[:]) == -1
+	} else if iPrevOut != nil && jPrevOut == nil {
+		return true
+	} else if iPrevOut == nil {
+		return false
+	}
+
+	// If hashes are the same, compare prevout indices
+	ihash := iPrevOut.Hash
+	jhash := jPrevOut.Hash
 	if ihash == jhash {
-		return ins[i].PreviousOutPoint.Index <
-			ins[j].PreviousOutPoint.Index
+		return iPrevOut.Index < jPrevOut.Index
 	}
 
 	// At this point, the hashes are not equal, so reverse them to
@@ -93,6 +110,29 @@ func (s *sortableInputs) Less(i, j int) bool {
 // Less is the output comparison function. First sort based on amount (smallest
 // first), then PkScript.
 func (s *sortableOutputs) Less(i, j int) bool {
+	if s.p.UnsignedTx == nil {
+		iOutput := s.p.Outputs[i]
+		jOutput := s.p.Outputs[j]
+
+		if iOutput.Amount == jOutput.Amount {
+			if !iOutput.isMWEB() && !jOutput.isMWEB() {
+				return bytes.Compare(iOutput.PKScript, jOutput.PKScript) < 0
+			} else if iOutput.isMWEB() != jOutput.isMWEB() {
+				return jOutput.isMWEB()
+			}
+
+			// Both are MWEB. Sort by commitment.
+			if jOutput.OutputCommit == nil {
+				return true
+			} else if iOutput.OutputCommit == nil {
+				return false
+			}
+
+			return bytes.Compare(iOutput.OutputCommit[:], jOutput.OutputCommit[:]) < 0
+		}
+		return iOutput.Amount < jOutput.Amount
+	}
+
 	outs := s.p.UnsignedTx.TxOut
 
 	if outs[i].Value == outs[j].Value {

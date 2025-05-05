@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"lukechampine.com/blake3"
 )
 
 const (
@@ -346,7 +345,7 @@ type MsgTx struct {
 	TxOut    []*TxOut
 	LockTime uint32
 	IsHogEx  bool
-	Kern0    []byte
+	Mweb     *MwebTx
 }
 
 // AddTxIn adds a transaction input to the message.
@@ -365,11 +364,10 @@ func (msg *MsgTx) TxHash() chainhash.Hash {
 	// Ignore the error returns since the only way the encode could fail
 	// is being out of memory or due to nil pointers, both of which would
 	// cause a run-time panic.
+
 	// A pure-MW tx can only be in mempool or the EB, not the canonical block.
-	if len(msg.Kern0) > 0 && len(msg.TxIn) == 0 && len(msg.TxOut) == 0 {
-		// CTransaction::ComputeHash in src/primitives/transaction.cpp.
-		// Fortunately also a 32 byte hash so we can use chainhash.Hash.
-		return blake3.Sum256(msg.Kern0)
+	if msg.Mweb != nil && len(msg.TxIn) == 0 && len(msg.TxOut) == 0 {
+		return *msg.Mweb.TxBody.Kernels[0].Hash()
 	}
 
 	buf := bytes.NewBuffer(make([]byte, 0, msg.SerializeSizeStripped()))
@@ -385,7 +383,7 @@ func (msg *MsgTx) TxHash() chainhash.Hash {
 func (msg *MsgTx) WitnessHash() chainhash.Hash {
 	if msg.HasWitness() {
 		buf := bytes.NewBuffer(make([]byte, 0, msg.SerializeSize()))
-		_ = msg.Serialize(buf)
+		_ = msg.BtcEncode(buf, 0, WitnessEncoding)
 		return chainhash.DoubleHashH(buf.Bytes())
 	}
 
@@ -395,75 +393,14 @@ func (msg *MsgTx) WitnessHash() chainhash.Hash {
 // Copy creates a deep copy of a transaction so that the original does not get
 // modified when the copy is manipulated.
 func (msg *MsgTx) Copy() *MsgTx {
-	// Create new tx and start by copying primitive values and making space
-	// for the transaction inputs and outputs.
-	newTx := MsgTx{
-		Version:  msg.Version,
-		TxIn:     make([]*TxIn, 0, len(msg.TxIn)),
-		TxOut:    make([]*TxOut, 0, len(msg.TxOut)),
-		LockTime: msg.LockTime,
+	var buf bytes.Buffer
+	if err := msg.Serialize(&buf); err != nil {
+		return nil
 	}
-
-	// Deep copy the old TxIn data.
-	for _, oldTxIn := range msg.TxIn {
-		// Deep copy the old previous outpoint.
-		oldOutPoint := oldTxIn.PreviousOutPoint
-		newOutPoint := OutPoint{}
-		newOutPoint.Hash.SetBytes(oldOutPoint.Hash[:])
-		newOutPoint.Index = oldOutPoint.Index
-
-		// Deep copy the old signature script.
-		var newScript []byte
-		oldScript := oldTxIn.SignatureScript
-		oldScriptLen := len(oldScript)
-		if oldScriptLen > 0 {
-			newScript = make([]byte, oldScriptLen)
-			copy(newScript, oldScript[:oldScriptLen])
-		}
-
-		// Create new txIn with the deep copied data.
-		newTxIn := TxIn{
-			PreviousOutPoint: newOutPoint,
-			SignatureScript:  newScript,
-			Sequence:         oldTxIn.Sequence,
-		}
-
-		// If the transaction is witnessy, then also copy the
-		// witnesses.
-		if len(oldTxIn.Witness) != 0 {
-			// Deep copy the old witness data.
-			newTxIn.Witness = make([][]byte, len(oldTxIn.Witness))
-			for i, oldItem := range oldTxIn.Witness {
-				newItem := make([]byte, len(oldItem))
-				copy(newItem, oldItem)
-				newTxIn.Witness[i] = newItem
-			}
-		}
-
-		// Finally, append this fully copied txin.
-		newTx.TxIn = append(newTx.TxIn, &newTxIn)
+	var newTx MsgTx
+	if err := newTx.Deserialize(&buf); err != nil {
+		return nil
 	}
-
-	// Deep copy the old TxOut data.
-	for _, oldTxOut := range msg.TxOut {
-		// Deep copy the old PkScript
-		var newScript []byte
-		oldScript := oldTxOut.PkScript
-		oldScriptLen := len(oldScript)
-		if oldScriptLen > 0 {
-			newScript = make([]byte, oldScriptLen)
-			copy(newScript, oldScript[:oldScriptLen])
-		}
-
-		// Create new txOut with the deep copied data and append it to
-		// new Tx.
-		newTxOut := TxOut{
-			Value:    oldTxOut.Value,
-			PkScript: newScript,
-		}
-		newTx.TxOut = append(newTx.TxOut, &newTxOut)
-	}
-
 	return &newTx
 }
 
@@ -487,7 +424,7 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 	// value is a TxFlagMarker, and hence indicates the presence of a flag.
 	hasMweb := false
 	hasWitness := false
-	if count == TxFlagMarker && enc == WitnessEncoding {
+	if count == TxFlagMarker && enc != BaseEncoding {
 		var flag [1]TxFlag
 		// The count varint was in fact the flag marker byte. Next, we need to
 		// read the flag value, which is a single byte.
@@ -642,34 +579,30 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 		}
 	}
 
-	var kern0 []byte
-	var isHogEx bool
 	if hasMweb {
-		dec := newDecoder(r)
-		kern0, isHogEx, err = dec.readMWTX()
-		if err != nil {
+		var hasMweb byte
+		if err = readElement(r, &hasMweb); err != nil {
 			returnScriptBuffers()
 			return err
 		}
+		msg.IsHogEx = hasMweb == 0
 
-		msg.IsHogEx = isHogEx
-		msg.Kern0 = kern0
-
-		if isHogEx && len(msg.TxOut) == 0 {
+		if !msg.IsHogEx {
+			msg.Mweb = &MwebTx{}
+			if err = msg.Mweb.read(r, pver); err != nil {
+				returnScriptBuffers()
+				return err
+			}
+		} else if len(msg.TxOut) == 0 {
+			returnScriptBuffers()
 			return messageError("MsgTx.BtcDecode", "No outputs on HogEx transaction")
 		}
+	}
 
-		msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
-		if err != nil {
-			returnScriptBuffers()
-			return err
-		}
-	} else {
-		msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
-		if err != nil {
-			returnScriptBuffers()
-			return err
-		}
+	msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
+	if err != nil {
+		returnScriptBuffers()
+		return err
 	}
 
 	// Create a single allocation to house all of the scripts and set each
@@ -782,13 +715,21 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 	// field for the MsgTx aren't 0x00, then this indicates the transaction
 	// is to be encoded using the new witness inclusionary structure
 	// defined in BIP0144.
-	doWitness := enc == WitnessEncoding && msg.HasWitness()
-	if doWitness {
+	doWitness := enc&WitnessEncoding > 0 && msg.HasWitness()
+	doMweb := enc&MwebEncoding > 0 && (msg.IsHogEx || msg.Mweb != nil)
+	if doWitness || doMweb {
 		// After the transaction's Version field, we include two additional
 		// bytes specific to the witness encoding. This byte sequence is known
 		// as a flag. The first byte is a marker byte (TxFlagMarker) and the
 		// second one is the flag value to indicate presence of witness data.
-		if _, err := w.Write([]byte{TxFlagMarker, WitnessFlag}); err != nil {
+		var flag TxFlag
+		if doWitness {
+			flag |= WitnessFlag
+		}
+		if doMweb {
+			flag |= MwebFlag
+		}
+		if _, err := w.Write([]byte{TxFlagMarker, flag}); err != nil {
 			return err
 		}
 	}
@@ -831,6 +772,21 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 		}
 	}
 
+	if doMweb {
+		if msg.IsHogEx {
+			err = writeElement(w, byte(0))
+		} else {
+			err = writeElement(w, byte(1))
+			if err != nil {
+				return err
+			}
+			err = msg.Mweb.write(w, pver)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
 	return binarySerializer.PutUint32(w, littleEndian, msg.LockTime)
 }
 
@@ -865,7 +821,7 @@ func (msg *MsgTx) Serialize(w io.Writer) error {
 	// indicates that the transaction's witnesses (if any) should be
 	// serialized according to the new serialization structure defined in
 	// BIP0144.
-	return msg.BtcEncode(w, 0, WitnessEncoding)
+	return msg.BtcEncode(w, 0, LatestEncoding)
 }
 
 // SerializeNoWitness encodes the transaction to w in an identical manner to
@@ -899,14 +855,26 @@ func (msg *MsgTx) baseSize() int {
 func (msg *MsgTx) SerializeSize() int {
 	n := msg.baseSize()
 
-	if msg.HasWitness() {
+	isMweb := msg.IsHogEx || msg.Mweb != nil
+	if msg.HasWitness() || isMweb {
 		// The marker, and flag fields take up two additional bytes.
 		n += 2
+	}
 
+	if msg.HasWitness() {
 		// Additionally, factor in the serialized size of each of the
 		// witnesses for each txin.
 		for _, txin := range msg.TxIn {
 			n += txin.Witness.SerializeSize()
+		}
+	}
+
+	if isMweb {
+		n++ // has mweb
+		if msg.Mweb != nil {
+			var buf bytes.Buffer
+			msg.Mweb.write(&buf, 0)
+			n += buf.Len()
 		}
 	}
 
@@ -1115,282 +1083,4 @@ func writeTxWitness(w io.Writer, pver uint32, version int32, wit [][]byte) error
 		}
 	}
 	return nil
-}
-
-/// MWEB
-
-type decoder struct {
-	buf [8]byte
-	rd  io.Reader
-	tee *bytes.Buffer // anything read from rd is Written to tee
-}
-
-// decoders
-func newDecoder(r io.Reader) *decoder {
-	return &decoder{rd: r}
-}
-
-func (d *decoder) Read(b []byte) (n int, err error) {
-	n, err = d.rd.Read(b)
-	if err != nil {
-		return 0, err
-	}
-	if d.tee != nil {
-		d.tee.Write(b)
-	}
-	return n, nil
-}
-
-func (d *decoder) readByte() (byte, error) {
-	b := d.buf[:1]
-	if _, err := io.ReadFull(d, b); err != nil {
-		return 0, err
-	}
-	return b[0], nil
-}
-
-func (d *decoder) discardBytes(n int64) error {
-	m, err := io.CopyN(io.Discard, d, n)
-	if err != nil {
-		return err
-	}
-	if m != n {
-		return fmt.Errorf("only discarded %d of %d bytes", m, n)
-	}
-	return nil
-}
-
-func (d *decoder) discardVect() error {
-	sz, err := ReadVarInt(d, 0)
-	if err != nil {
-		return err
-	}
-	return d.discardBytes(int64(sz))
-}
-
-func (d *decoder) readVLQ() (uint64, error) {
-	var n uint64
-	for {
-		val, err := d.readByte()
-		if err != nil {
-			return 0, err
-		}
-		n = (n << 7) | uint64(val&0x7f)
-		if val&0x80 != 0x80 {
-			break
-		}
-		n++
-	}
-
-	return n, nil
-}
-
-// reader
-func (d *decoder) readMWTX() ([]byte, bool, error) {
-	// src/mweb/mweb_models.h - struct Tx
-	// "A convenience wrapper around a possibly-null MWEB transaction."
-	// Read the uint8_t is_set of OptionalPtr.
-	haveMWTX, err := d.readByte()
-	if err != nil {
-		return nil, false, err
-	}
-	if haveMWTX == 0 {
-		return nil, true, nil // HogEx - that's all folks
-	}
-
-	// src/libmw/include/mw/models/tx/Transaction.h - class Transaction
-	// READWRITE(obj.m_kernelOffset); // class BlindingFactor
-	// READWRITE(obj.m_stealthOffset); // class BlindingFactor
-	// READWRITE(obj.m_body); // class TxBody
-
-	// src/libmw/include/mw/models/crypto/BlindingFactor.h - class BlindingFactor
-	// just 32 bytes:
-	//  BigInt<32> m_value;
-	//  READWRITE(obj.m_value);
-	// x2 for both kernel_offset and stealth_offset BlindingFactor
-	if err = d.discardBytes(64); err != nil {
-		return nil, false, err
-	}
-
-	// TxBody
-	kern0, err := d.readMWTXBody()
-	if err != nil {
-		return nil, false, err
-	}
-	return kern0, false, nil
-}
-
-func (d *decoder) readMWTXBody() ([]byte, error) {
-	// src/libmw/include/mw/models/tx/TxBody.h - class TxBody
-	//  READWRITE(obj.m_inputs, obj.m_outputs, obj.m_kernels);
-	//  std::vector<Input> m_inputs;
-	//  std::vector<Output> m_outputs;
-	//  std::vector<Kernel> m_kernels;
-
-	// inputs
-	numIn, err := ReadVarInt(d, 0)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < int(numIn); i++ {
-		// src/libmw/include/mw/models/tx/Input.h - class Input
-		// - features uint8_t
-		// - outputID mw::Hash - 32 bytes BigInt<32>
-		// - commit Commitment - 33 bytes BigInt<SIZE> for SIZE 33
-		// - outputPubKey PublicKey - 33 bytes BigInt<33>
-		// (if features includes STEALTH_KEY_FEATURE_BIT) input_pubkey PublicKey
-		// (if features includes EXTRA_DATA_FEATURE_BIT) extraData vector<uint8_t>
-		// - signature Signature - 64 bytes BigInt<SIZE> for SIZE 64
-		//
-		// enum FeatureBit {
-		//     STEALTH_KEY_FEATURE_BIT = 0x01,
-		//     EXTRA_DATA_FEATURE_BIT = 0x02
-		// };
-		feats, err := d.readByte()
-		if err != nil {
-			return nil, err
-		}
-		if err = d.discardBytes(32 + 33 + 33); err != nil { // outputID, commitment, outputPubKey
-			return nil, err
-		}
-		if feats&0x1 != 0 { // input pubkey
-			if err = d.discardBytes(33); err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x2 != 0 { // extraData
-			if err = d.discardVect(); err != nil {
-				return nil, err
-			}
-		}
-		if err = d.discardBytes(64); err != nil { // sig
-			return nil, err
-		}
-	}
-
-	// outputs
-	numOut, err := ReadVarInt(d, 0)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < int(numOut); i++ {
-		// src/libmw/include/mw/models/tx/Output.h - class Output
-		// commit
-		// sender pubkey
-		// receiver pubkey
-		// message OutputMessage --- fuuuuuuuu
-		// proof RangeProof
-		// signature
-		if err = d.discardBytes(33 + 33 + 33); err != nil { // commitment, sender pk, receiver pk
-			return nil, err
-		}
-
-		// OutputMessage
-		feats, err := d.readByte()
-		if err != nil {
-			return nil, err
-		}
-		// enum FeatureBit {
-		// 	STANDARD_FIELDS_FEATURE_BIT = 0x01,
-		// 	EXTRA_DATA_FEATURE_BIT = 0x02
-		// };
-		if feats&0x1 != 0 { // pubkey | view_tag uint8_t | masked_value uint64_t | nonce 16-bytes
-			if err = d.discardBytes(33 + 1 + 8 + 16); err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x2 != 0 { // extraData
-			if err = d.discardVect(); err != nil {
-				return nil, err
-			}
-		}
-
-		// RangeProof "The proof itself, at most 675 bytes long."
-		// std::vector<uint8_t> m_bytes; -- except it's actually used like a [675]byte...
-		if err = d.discardBytes(675 + 64); err != nil { // proof + sig
-			return nil, err
-		}
-	}
-
-	// kernels
-	numKerns, err := ReadVarInt(d, 0)
-	if err != nil {
-		return nil, err
-	}
-	// Capture the first kernel since pure MW txns (no canonical inputs or
-	// outputs) that live in the MWEB but are also seen in mempool have their
-	// hash computed as blake3_256(kernel0).
-	var kern0 []byte
-	d.tee = new(bytes.Buffer)
-	for i := 0; i < int(numKerns); i++ {
-		// src/libmw/include/mw/models/tx/Kernel.h - class Kernel
-
-		// enum FeatureBit {
-		//     FEE_FEATURE_BIT = 0x01,
-		//     PEGIN_FEATURE_BIT = 0x02,
-		//     PEGOUT_FEATURE_BIT = 0x04,
-		//     HEIGHT_LOCK_FEATURE_BIT = 0x08,
-		//     STEALTH_EXCESS_FEATURE_BIT = 0x10,
-		//     EXTRA_DATA_FEATURE_BIT = 0x20,
-		//     ALL_FEATURE_BITS = FEE_FEATURE_BIT | PEGIN...
-		// };
-		feats, err := d.readByte()
-		if err != nil {
-			return nil, err
-		}
-		if feats&0x1 != 0 { // fee
-			_, err = d.readVLQ() // vlq for amount? in the wire protocol?!?
-			if err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x2 != 0 { // pegin amt
-			_, err = d.readVLQ()
-			if err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x4 != 0 { // pegouts vector
-			sz, err := ReadVarInt(d, 0)
-			if err != nil {
-				return nil, err
-			}
-			for i := uint64(0); i < sz; i++ {
-				_, err = d.readVLQ() // pegout amt
-				if err != nil {
-					return nil, err
-				}
-				if err = d.discardVect(); err != nil { // pkScript
-					return nil, err
-				}
-			}
-		}
-		if feats&0x8 != 0 { // lockHeight
-			_, err = d.readVLQ()
-			if err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x10 != 0 { // stealth_excess pubkey
-			if err = d.discardBytes(33); err != nil {
-				return nil, err
-			}
-		}
-		if feats&0x20 != 0 { // extraData vector
-			if err = d.discardVect(); err != nil {
-				return nil, err
-			}
-		}
-		// "excess" commitment and signature
-		if err = d.discardBytes(33 + 64); err != nil {
-			return nil, err
-		}
-
-		if i == 0 {
-			kern0 = d.tee.Bytes()
-			d.tee = nil
-		}
-	}
-
-	return kern0, nil
 }

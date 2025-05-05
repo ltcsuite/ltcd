@@ -15,6 +15,7 @@ import (
 	"github.com/ltcsuite/ltcd/chaincfg"
 	"github.com/ltcsuite/ltcd/ltcutil/base58"
 	"github.com/ltcsuite/ltcd/ltcutil/bech32"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -82,7 +83,7 @@ func encodeSegWitAddress(hrp string, witnessVersion byte, witnessProgram []byte)
 
 	var bech string
 	switch witnessVersion {
-	case 0:
+	case 0, 8, 9:
 		bech, err = bech32.Encode(hrp, combined)
 
 	case 1:
@@ -184,6 +185,12 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 					return nil, UnsupportedWitnessProgLenError(len(witnessProg))
 				}
 			}
+		} else if chaincfg.IsBech32MwebPrefix(prefix) {
+			sa, err := decodeMwebAddress(addr)
+			if err == nil {
+				hrp := prefix[:len(prefix)-1]
+				return newAddressMweb(hrp, sa), nil
+			}
 		}
 	}
 
@@ -278,6 +285,46 @@ func decodeSegWitAddress(address string) (byte, []byte, error) {
 	}
 
 	return version, regrouped, nil
+}
+
+// decodeMwebAddress parses a bech32 encoded MWEB address string and
+// returns the stealth address representation.
+func decodeMwebAddress(address string) (*mw.StealthAddress, error) {
+	// Decode the bech32 encoded address.
+	_, data, err := bech32.Decode(address)
+	if err != nil {
+		return nil, err
+	}
+
+	// The first byte of the decoded address is the version byte, it must
+	// exist.
+	if len(data) < 1 {
+		return nil, fmt.Errorf("no version byte")
+	}
+
+	// ...and be == 0.
+	version := data[0]
+	if version != 0 {
+		return nil, fmt.Errorf("invalid version byte: %v", version)
+	}
+
+	// The remaining characters of the address returned are grouped into
+	// words of 5 bits. In order to restore the original bytes, we'll
+	// need to regroup into 8 bit words.
+	regrouped, err := bech32.ConvertBits(data[1:], 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Address MUST be exactly 66 bytes.
+	if len(regrouped) != 66 {
+		return nil, fmt.Errorf("invalid data length")
+	}
+
+	return &mw.StealthAddress{
+		Scan:  (*mw.PublicKey)(regrouped[:33]),
+		Spend: (*mw.PublicKey)(regrouped[33:]),
+	}, nil
 }
 
 // AddressPubKeyHash is an Address for a pay-to-pubkey-hash (P2PKH)
@@ -710,4 +757,104 @@ func newAddressTaproot(hrp string,
 	}
 
 	return addr, nil
+}
+
+// AddressWitnessMweb is an Address for a MWEB witness output.
+type AddressWitnessMweb struct {
+	AddressSegWit
+}
+
+// NewAddressWitnessMweb returns a new AddressWitnessMweb.
+func NewAddressWitnessMweb(witnessVersion byte, witnessProg []byte,
+	net *chaincfg.Params) (*AddressWitnessMweb, error) {
+
+	return newAddressWitnessMweb(net.Bech32HRPSegwit,
+		witnessVersion, witnessProg)
+}
+
+// newAddressWitnessMweb is an internal helper function to create an
+// AddressWitnessMweb with a known human-readable part, rather than
+// looking it up through its parameters.
+func newAddressWitnessMweb(hrp string, witnessVersion byte,
+	witnessProg []byte) (*AddressWitnessMweb, error) {
+
+	// Check for valid program length, which is 32 for MWEB.
+	if len(witnessProg) != 32 {
+		return nil, errors.New("witness program must be 32 " +
+			"bytes for mweb")
+	}
+
+	addr := &AddressWitnessMweb{
+		AddressSegWit{
+			hrp:            strings.ToLower(hrp),
+			witnessVersion: witnessVersion,
+			witnessProgram: witnessProg,
+		},
+	}
+
+	return addr, nil
+}
+
+// AddressMweb is an Address for an MWEB output.
+type AddressMweb struct {
+	hrp string
+	sa  *mw.StealthAddress
+}
+
+// NewAddressMweb returns a new AddressMweb.
+func NewAddressMweb(sa *mw.StealthAddress, net *chaincfg.Params) *AddressMweb {
+	return newAddressMweb(net.Bech32HRPMweb, sa)
+}
+
+func newAddressMweb(hrp string, sa *mw.StealthAddress) *AddressMweb {
+	return &AddressMweb{
+		hrp: strings.ToLower(hrp),
+		sa:  sa,
+	}
+}
+
+// EncodeAddress returns the bech32 string encoding of an AddressMweb.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) EncodeAddress() string {
+	converted, err := bech32.ConvertBits(a.ScriptAddress(), 8, 5, true)
+	if err != nil {
+		return ""
+	}
+	bech, _ := bech32.Encode(a.hrp, append([]byte{0}, converted...))
+	return bech
+}
+
+// ScriptAddress returns the witness program for this address.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) ScriptAddress() []byte {
+	return append(a.sa.Scan[:], a.sa.Spend[:]...)
+}
+
+// IsForNet returns whether the AddressMweb is associated with the passed
+// litecoin network.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) IsForNet(net *chaincfg.Params) bool {
+	return a.hrp == net.Bech32HRPMweb
+}
+
+// String returns a human-readable string for the AddressMweb.
+// This is equivalent to calling EncodeAddress, but is provided so the type
+// can be used as a fmt.Stringer.
+//
+// NOTE: This method is part of the Address interface.
+func (a *AddressMweb) String() string {
+	return a.EncodeAddress()
+}
+
+// Hrp returns the human-readable part of the bech32 encoded AddressMweb.
+func (a *AddressMweb) Hrp() string {
+	return a.hrp
+}
+
+// StealthAddress returns the stealth address.
+func (a *AddressMweb) StealthAddress() *mw.StealthAddress {
+	return a.sa
 }

@@ -146,6 +146,14 @@ const (
 	// TaprootWitnessVersion is the witness version that defines the new
 	// taproot verification logic.
 	TaprootWitnessVersion = 1
+
+	// MwebHogAddrWitnessVersion is the witness version of MWEB witness
+	// programs for HogAddr outputs.
+	MwebHogAddrWitnessVersion = 8
+
+	// MwebPeginWitnessVersion is the witness version of MWEB witness
+	// programs for peg-in transactions.
+	MwebPeginWitnessVersion = 9
 )
 
 // halforder is used to tame ECDSA malleability (see BIP0062).

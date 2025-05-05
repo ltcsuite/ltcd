@@ -3,11 +3,13 @@ package psbt
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
-	"sort"
-
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
+	"io"
+	"sort"
 )
 
 // PInput is a struct encapsulating all the data that can be attached to any
@@ -22,12 +24,30 @@ type PInput struct {
 	Bip32Derivation        []*Bip32Derivation
 	FinalScriptSig         []byte
 	FinalScriptWitness     []byte
+	PrevoutHash            *chainhash.Hash
+	PrevoutIndex           *uint32
+	Sequence               *uint32
+	RequiredTimeLockTime   *uint32
+	RequiredHeightLockTime *uint32
 	TaprootKeySpendSig     []byte
 	TaprootScriptSpendSig  []*TaprootScriptSpendSig
 	TaprootLeafScript      []*TaprootTapLeafScript
 	TaprootBip32Derivation []*TaprootBip32Derivation
 	TaprootInternalKey     []byte
 	TaprootMerkleRoot      []byte
+	MwebOutputId           *chainhash.Hash
+	MwebAddressIndex       *uint32
+	MwebAmount             *ltcutil.Amount
+	MwebSharedSecret       *mw.SecretKey
+	MwebKeyExchangePubkey  *mw.PublicKey
+	MwebCommit             *mw.Commitment
+	MwebOutputPubkey       *mw.PublicKey
+	MwebInputPubkey        *mw.PublicKey
+	MwebFeatures           *wire.MwebInputFeatureBit
+	MwebInputSig           *mw.Signature
+	MwebMasterScanKey      *Bip32Derivation
+	MwebMasterSpendKey     *Bip32Derivation
+	MwebExtraData          []byte
 	Unknowns               []*Unknown
 }
 
@@ -39,73 +59,187 @@ type PInput struct {
 // checks and will not be usable.
 func NewPsbtInput(nonWitnessUtxo *wire.MsgTx, witnessUtxo *wire.TxOut) *PInput {
 	return &PInput{
-		NonWitnessUtxo:     nonWitnessUtxo,
-		WitnessUtxo:        witnessUtxo,
-		PartialSigs:        []*PartialSig{},
-		SighashType:        0,
-		RedeemScript:       nil,
-		WitnessScript:      nil,
-		Bip32Derivation:    []*Bip32Derivation{},
-		FinalScriptSig:     nil,
-		FinalScriptWitness: nil,
-		Unknowns:           nil,
+		NonWitnessUtxo:         nonWitnessUtxo,
+		WitnessUtxo:            witnessUtxo,
+		PartialSigs:            []*PartialSig{},
+		SighashType:            0,
+		RedeemScript:           nil,
+		WitnessScript:          nil,
+		Bip32Derivation:        []*Bip32Derivation{},
+		FinalScriptSig:         nil,
+		FinalScriptWitness:     nil,
+		PrevoutHash:            nil,
+		PrevoutIndex:           nil,
+		Sequence:               nil,
+		RequiredTimeLockTime:   nil,
+		RequiredHeightLockTime: nil,
+		MwebOutputId:           nil,
+		MwebAddressIndex:       nil,
+		MwebAmount:             nil,
+		MwebSharedSecret:       nil,
+		MwebKeyExchangePubkey:  nil,
+		MwebCommit:             nil,
+		MwebOutputPubkey:       nil,
+		MwebInputPubkey:        nil,
+		MwebFeatures:           nil,
+		MwebInputSig:           nil,
+		MwebMasterScanKey:      nil,
+		MwebMasterSpendKey:     nil,
+		MwebExtraData:          nil,
+		Unknowns:               nil,
 	}
 }
 
-// IsSane returns true only if there are no conflicting values in the Psbt
+// isSane returns true only if there are no conflicting values in the Psbt
 // PInput. For segwit v0 no checks are currently implemented.
-func (pi *PInput) IsSane() bool {
+func (pi *PInput) isSane(psbtVersion uint32) bool {
 	// TODO(guggero): Implement sanity checks for segwit v1. For segwit v0
 	// it is unsafe to only rely on the witness UTXO so we don't check that
 	// only one is set anymore.
 	// See https://github.com/bitcoin/bitcoin/pull/19215.
 
+	// No MWEB fields should be set on PSBTv0 inputs or non-MWEB inputs
+	if psbtVersion < 2 || !pi.isMWEB() {
+		if pi.MwebOutputId != nil ||
+			pi.MwebAddressIndex != nil ||
+			pi.MwebAmount != nil ||
+			pi.MwebSharedSecret != nil ||
+			pi.MwebKeyExchangePubkey != nil ||
+			pi.MwebCommit != nil ||
+			pi.MwebOutputPubkey != nil ||
+			pi.MwebInputPubkey != nil ||
+			pi.MwebFeatures != nil ||
+			pi.MwebInputSig != nil ||
+			pi.MwebExtraData != nil {
+			return false
+		}
+	}
+
+	if pi.isMWEB() {
+		if pi.MwebInputSig != nil && !pi.isFinalized() {
+			return false
+		}
+
+		// TODO(dburkett): Should probably verify that no non-MWEB fields are set
+		return true
+	}
+
+	if psbtVersion >= 2 {
+		if pi.PrevoutHash == nil || pi.PrevoutIndex == nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isFinalized considers this input finalized if it's got all required MWEB fields populated,
+// or contains at least one of the FinalScriptSig or FinalScriptWitness (which only occurs in a
+// successful call to Finalize*).
+func (pi *PInput) isFinalized() bool {
+	if pi.isMWEB() {
+		if pi.MwebInputSig == nil || pi.MwebFeatures == nil || pi.MwebCommit == nil || pi.MwebOutputPubkey == nil {
+			return false
+		}
+
+		// If Input stealth key feature bit is set, input pubkey must be provided
+		if *pi.MwebFeatures&wire.MwebInputStealthKeyFeatureBit > 0 && pi.MwebInputPubkey == nil {
+			return false
+		}
+
+		// If extra data feature bit is set, it must be provided
+		if *pi.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0 && len(pi.MwebExtraData) == 0 {
+			return false
+		}
+
+		return true
+	}
+
+	return pi.FinalScriptSig != nil || pi.FinalScriptWitness != nil
+}
+
+func (pi *PInput) isMWEB() bool {
+	return pi.MwebOutputId != nil
+}
+
+var (
+	illegalPsbtV0InputKeys = map[InputType]bool{
+		PrevoutHashInputType:            true,
+		PrevoutIndexInputType:           true,
+		SequenceInputType:               true,
+		RequiredTimeLocktimeInputType:   true,
+		RequiredHeightLocktimeInputType: true,
+		MwebSpentOutputIdType:           true,
+		MwebSpentOutputCommitType:       true,
+		MwebSpentOutputPubKeyType:       true,
+		MwebInputPubKeyType:             true,
+		MwebInputFeaturesType:           true,
+		MwebInputSignatureType:          true,
+		MwebAddressIndexType:            true,
+		MwebInputAmountType:             true,
+		MwebSharedSecretType:            true,
+		MwebKeyExchangePubKeyType:       true,
+		MwebMasterScanKeyOriginType:     true,
+		MwebMasterSpendKeyOriginType:    true,
+		MwebInputExtraDataType:          true,
+	}
+	illegalPsbtV2InputKeys = map[InputType]bool{}
+)
+
+func (pi *PInput) isAllowed(psbtVersion uint32, inputType InputType) bool {
+	if psbtVersion == 0 {
+		return !illegalPsbtV0InputKeys[inputType]
+	} else if psbtVersion == 2 {
+		return !illegalPsbtV2InputKeys[inputType]
+	}
+
 	return true
 }
 
 // deserialize attempts to deserialize a new PInput from the passed io.Reader.
-func (pi *PInput) deserialize(r io.Reader) error {
+func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
+	inputKeys := newKeySet()
 	for {
-		keyCode, keyData, err := getKey(r)
+		kvPair, err := getKVPair(r)
 		if err != nil {
 			return err
 		}
-		if keyCode == -1 {
-			// Reached separator byte, this section is done.
+
+		// If this is separator byte (nil kvPair), this section is done.
+		if kvPair == nil {
 			break
 		}
-		value, err := wire.ReadVarBytes(
-			r, 0, MaxPsbtValueLength, "PSBT value",
-		)
-		if err != nil {
-			return err
+
+		// According to BIP-0174, <key> := <keylen><keytype><keydata> must be unique per map
+		if !inputKeys.addKey(kvPair.keyType, kvPair.keyData) {
+			return ErrDuplicateKey
 		}
 
-		switch InputType(keyCode) {
+		// Check if kvPair.keyType is allowed for psbtVersion
+		inputType := InputType(kvPair.keyType)
+		if !pi.isAllowed(psbtVersion, inputType) {
+			return ErrUnsupportedFieldInPsbtVersion
+		}
+
+		switch InputType(kvPair.keyType) {
 
 		case NonWitnessUtxoType:
-			if pi.NonWitnessUtxo != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 			tx := wire.NewMsgTx(2)
 
-			err := tx.Deserialize(bytes.NewReader(value))
+			err := tx.Deserialize(bytes.NewReader(kvPair.valueData))
 			if err != nil {
 				return err
 			}
 			pi.NonWitnessUtxo = tx
 
 		case WitnessUtxoType:
-			if pi.WitnessUtxo != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
-			txout, err := readTxOut(value)
+			txout, err := readTxOut(kvPair.valueData)
 			if err != nil {
 				return err
 			}
@@ -113,125 +247,156 @@ func (pi *PInput) deserialize(r io.Reader) error {
 
 		case PartialSigType:
 			newPartialSig := PartialSig{
-				PubKey:    keyData,
-				Signature: value,
+				PubKey:    kvPair.keyData,
+				Signature: kvPair.valueData,
 			}
 
 			if !newPartialSig.checkValid() {
 				return ErrInvalidPsbtFormat
 			}
 
-			// Duplicate keys are not allowed.
-			for _, x := range pi.PartialSigs {
-				if bytes.Equal(x.PubKey, newPartialSig.PubKey) {
-					return ErrDuplicateKey
-				}
-			}
-
 			pi.PartialSigs = append(pi.PartialSigs, &newPartialSig)
 
 		case SighashType:
-			if pi.SighashType != 0 {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
 			// Bounds check on value here since the sighash type
 			// must be a 32-bit unsigned integer.
-			if len(value) != 4 {
+			if len(kvPair.valueData) != 4 {
 				return ErrInvalidKeyData
 			}
 
 			sighashType := txscript.SigHashType(
-				binary.LittleEndian.Uint32(value),
+				binary.LittleEndian.Uint32(kvPair.valueData),
 			)
 			pi.SighashType = sighashType
 
 		case RedeemScriptInputType:
-			if pi.RedeemScript != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
-			pi.RedeemScript = value
+			pi.RedeemScript = kvPair.valueData
 
 		case WitnessScriptInputType:
 			if pi.WitnessScript != nil {
 				return ErrDuplicateKey
 			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
-			pi.WitnessScript = value
+			pi.WitnessScript = kvPair.valueData
 
 		case Bip32DerivationInputType:
-			if !validatePubkey(keyData) {
+			if !validatePubkey(kvPair.keyData) {
 				return ErrInvalidPsbtFormat
 			}
 			master, derivationPath, err := ReadBip32Derivation(
-				value,
+				kvPair.valueData,
 			)
 			if err != nil {
 				return err
 			}
 
-			// Duplicate keys are not allowed
-			for _, x := range pi.Bip32Derivation {
-				if bytes.Equal(x.PubKey, keyData) {
-					return ErrDuplicateKey
-				}
-			}
-
 			pi.Bip32Derivation = append(
 				pi.Bip32Derivation,
 				&Bip32Derivation{
-					PubKey:               keyData,
+					PubKey:               kvPair.keyData,
 					MasterKeyFingerprint: master,
 					Bip32Path:            derivationPath,
 				},
 			)
 
 		case FinalScriptSigType:
-			if pi.FinalScriptSig != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
-			pi.FinalScriptSig = value
+			pi.FinalScriptSig = kvPair.valueData
 
 		case FinalScriptWitnessType:
-			if pi.FinalScriptWitness != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
-			pi.FinalScriptWitness = value
+			pi.FinalScriptWitness = kvPair.valueData
+
+		case PrevoutHashInputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			var prevoutHash chainhash.Hash
+			if err = prevoutHash.SetBytes(kvPair.valueData[:]); err != nil {
+				return err
+			}
+
+			pi.PrevoutHash = &prevoutHash
+
+		case PrevoutIndexInputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			if len(kvPair.valueData) != 4 {
+				return ErrInvalidKeyData
+			}
+
+			prevoutIndex := binary.LittleEndian.Uint32(kvPair.valueData)
+			pi.PrevoutIndex = &prevoutIndex
+
+		case SequenceInputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			if len(kvPair.valueData) != 4 {
+				return ErrInvalidKeyData
+			}
+
+			sequence := binary.LittleEndian.Uint32(kvPair.valueData)
+			pi.Sequence = &sequence
+
+		case RequiredTimeLocktimeInputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			if len(kvPair.valueData) != 4 {
+				return ErrInvalidKeyData
+			}
+
+			requiredTimeLockTime := binary.LittleEndian.Uint32(kvPair.valueData)
+			pi.RequiredTimeLockTime = &requiredTimeLockTime
+
+		case RequiredHeightLocktimeInputType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			if len(kvPair.valueData) != 4 {
+				return ErrInvalidKeyData
+			}
+
+			requiredHeightLockTime := binary.LittleEndian.Uint32(kvPair.valueData)
+			pi.RequiredHeightLockTime = &requiredHeightLockTime
 
 		case TaprootKeySpendSignatureType:
-			if pi.TaprootKeySpendSig != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
 			// The signature can either be 64 or 65 bytes.
 			switch {
-			case len(value) == schnorrSigMinLength:
-				if !validateSchnorrSignature(value) {
+			case len(kvPair.valueData) == schnorrSigMinLength:
+				if !validateSchnorrSignature(kvPair.valueData) {
 					return ErrInvalidKeyData
 				}
 
-			case len(value) == schnorrSigMaxLength:
+			case len(kvPair.valueData) == schnorrSigMaxLength:
 				if !validateSchnorrSignature(
-					value[0:schnorrSigMinLength],
+					kvPair.valueData[0:schnorrSigMinLength],
 				) {
 					return ErrInvalidKeyData
 				}
@@ -240,30 +405,30 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				return ErrInvalidKeyData
 			}
 
-			pi.TaprootKeySpendSig = value
+			pi.TaprootKeySpendSig = kvPair.valueData
 
 		case TaprootScriptSpendSignatureType:
 			// The key data for the script spend signature is:
 			//   <xonlypubkey> <leafhash>
-			if len(keyData) != 32*2 {
+			if len(kvPair.keyData) != 32*2 {
 				return ErrInvalidKeyData
 			}
 
 			newPartialSig := TaprootScriptSpendSig{
-				XOnlyPubKey: keyData[:32],
-				LeafHash:    keyData[32:],
+				XOnlyPubKey: kvPair.keyData[:32],
+				LeafHash:    kvPair.keyData[32:],
 			}
 
 			// The signature can either be 64 or 65 bytes.
 			switch {
-			case len(value) == schnorrSigMinLength:
-				newPartialSig.Signature = value
+			case len(kvPair.valueData) == schnorrSigMinLength:
+				newPartialSig.Signature = kvPair.valueData
 				newPartialSig.SigHash = txscript.SigHashDefault
 
-			case len(value) == schnorrSigMaxLength:
-				newPartialSig.Signature = value[0:schnorrSigMinLength]
+			case len(kvPair.valueData) == schnorrSigMaxLength:
+				newPartialSig.Signature = kvPair.valueData[0:schnorrSigMinLength]
 				newPartialSig.SigHash = txscript.SigHashType(
-					value[schnorrSigMinLength],
+					kvPair.valueData[schnorrSigMinLength],
 				)
 
 			default:
@@ -274,27 +439,20 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				return ErrInvalidKeyData
 			}
 
-			// Duplicate keys are not allowed.
-			for _, x := range pi.TaprootScriptSpendSig {
-				if x.EqualKey(&newPartialSig) {
-					return ErrDuplicateKey
-				}
-			}
-
 			pi.TaprootScriptSpendSig = append(
 				pi.TaprootScriptSpendSig, &newPartialSig,
 			)
 
 		case TaprootLeafScriptType:
-			if len(value) < 1 {
+			if len(kvPair.valueData) < 1 {
 				return ErrInvalidKeyData
 			}
 
 			newLeafScript := TaprootTapLeafScript{
-				ControlBlock: keyData,
-				Script:       value[:len(value)-1],
+				ControlBlock: kvPair.keyData,
+				Script:       kvPair.valueData[:len(kvPair.valueData)-1],
 				LeafVersion: txscript.TapscriptLeafVersion(
-					value[len(value)-1],
+					kvPair.valueData[len(kvPair.valueData)-1],
 				),
 			}
 
@@ -302,37 +460,20 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				return ErrInvalidKeyData
 			}
 
-			// Duplicate keys are not allowed.
-			for _, x := range pi.TaprootLeafScript {
-				if bytes.Equal(
-					x.ControlBlock,
-					newLeafScript.ControlBlock,
-				) {
-					return ErrDuplicateKey
-				}
-			}
-
 			pi.TaprootLeafScript = append(
 				pi.TaprootLeafScript, &newLeafScript,
 			)
 
 		case TaprootBip32DerivationInputType:
-			if !validateXOnlyPubkey(keyData) {
+			if !validateXOnlyPubkey(kvPair.keyData) {
 				return ErrInvalidKeyData
 			}
 
 			taprootDerivation, err := ReadTaprootBip32Derivation(
-				keyData, value,
+				kvPair.keyData, kvPair.valueData,
 			)
 			if err != nil {
 				return err
-			}
-
-			// Duplicate keys are not allowed.
-			for _, x := range pi.TaprootBip32Derivation {
-				if bytes.Equal(x.XOnlyPubKey, keyData) {
-					return ErrDuplicateKey
-				}
 			}
 
 			pi.TaprootBip32Derivation = append(
@@ -340,46 +481,163 @@ func (pi *PInput) deserialize(r io.Reader) error {
 			)
 
 		case TaprootInternalKeyInputType:
-			if pi.TaprootInternalKey != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
-			if !validateXOnlyPubkey(value) {
+			if !validateXOnlyPubkey(kvPair.valueData) {
 				return ErrInvalidKeyData
 			}
 
-			pi.TaprootInternalKey = value
+			pi.TaprootInternalKey = kvPair.valueData
 
 		case TaprootMerkleRootType:
-			if pi.TaprootMerkleRoot != nil {
-				return ErrDuplicateKey
-			}
-			if keyData != nil {
+			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
 
-			pi.TaprootMerkleRoot = value
+			pi.TaprootMerkleRoot = kvPair.valueData
 
+		case MwebSpentOutputIdType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebOutputId = new(chainhash.Hash)
+			err = pi.MwebOutputId.SetBytes(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+		case MwebSpentOutputCommitType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebCommit = mw.ReadCommitment(kvPair.valueData)
+			if pi.MwebCommit == nil {
+				return ErrInvalidPsbtFormat
+			}
+		case MwebSpentOutputPubKeyType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebOutputPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+		case MwebInputPubKeyType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebInputPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+		case MwebInputFeaturesType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			if len(kvPair.valueData) != 1 {
+				return ErrInvalidPsbtFormat
+			}
+
+			features := wire.MwebInputFeatureBit(kvPair.valueData[0])
+			pi.MwebFeatures = &features
+		case MwebInputSignatureType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebInputSig = mw.ReadSignature(kvPair.valueData)
+			if pi.MwebInputSig == nil {
+				return ErrInvalidPsbtFormat
+			}
+		case MwebAddressIndexType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			if len(kvPair.valueData) != 4 {
+				return ErrInvalidPsbtFormat
+			}
+
+			pi.MwebAddressIndex = uint32Ptr(binary.LittleEndian.Uint32(kvPair.valueData))
+		case MwebInputAmountType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			if len(kvPair.valueData) != 8 {
+				return ErrInvalidPsbtFormat
+			}
+
+			mwebAmount := ltcutil.Amount(binary.LittleEndian.Uint64(kvPair.valueData))
+			pi.MwebAmount = &mwebAmount
+		case MwebSharedSecretType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			if len(kvPair.valueData) != 32 {
+				return ErrInvalidPsbtFormat
+			}
+
+			pi.MwebSharedSecret = (*mw.SecretKey)(kvPair.valueData)
+		case MwebKeyExchangePubKeyType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+
+			pi.MwebKeyExchangePubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+		case MwebMasterScanKeyOriginType:
+			if pi.MwebMasterScanKey != nil {
+				return ErrInvalidPsbtFormat
+			}
+			if !validatePubkey(kvPair.keyData) {
+				return ErrInvalidPsbtFormat
+			}
+			master, derivationPath, err := ReadBip32Derivation(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+
+			pi.MwebMasterScanKey = &Bip32Derivation{
+				PubKey:               kvPair.keyData,
+				MasterKeyFingerprint: master,
+				Bip32Path:            derivationPath,
+			}
+		case MwebMasterSpendKeyOriginType:
+			if pi.MwebMasterSpendKey != nil {
+				return ErrInvalidPsbtFormat
+			}
+			if !validatePubkey(kvPair.keyData) {
+				return ErrInvalidPsbtFormat
+			}
+			master, derivationPath, err := ReadBip32Derivation(kvPair.valueData)
+			if err != nil {
+				return err
+			}
+
+			pi.MwebMasterScanKey = &Bip32Derivation{
+				PubKey:               kvPair.keyData,
+				MasterKeyFingerprint: master,
+				Bip32Path:            derivationPath,
+			}
+		case MwebInputExtraDataType:
+			if kvPair.keyData != nil {
+				return ErrInvalidKeyData
+			}
+			pi.MwebExtraData = kvPair.valueData
 		default:
 			// A fall through case for any proprietary types.
 			keyCodeAndData := append(
-				[]byte{byte(keyCode)}, keyData...,
+				[]byte{kvPair.keyType}, kvPair.keyData...,
 			)
 			newUnknown := &Unknown{
 				Key:   keyCodeAndData,
-				Value: value,
-			}
-
-			// Duplicate key+keyData are not allowed.
-			for _, x := range pi.Unknowns {
-				if bytes.Equal(x.Key, newUnknown.Key) &&
-					bytes.Equal(x.Value, newUnknown.Value) {
-
-					return ErrDuplicateKey
-				}
+				Value: kvPair.valueData,
 			}
 
 			pi.Unknowns = append(pi.Unknowns, newUnknown)
@@ -390,8 +648,8 @@ func (pi *PInput) deserialize(r io.Reader) error {
 }
 
 // serialize attempts to serialize the target PInput into the passed io.Writer.
-func (pi *PInput) serialize(w io.Writer) error {
-	if !pi.IsSane() {
+func (pi *PInput) serialize(w io.Writer, psbtVersion uint32) error {
+	if !pi.isSane(psbtVersion) {
 		return ErrInvalidPsbtFormat
 	}
 
@@ -592,6 +850,199 @@ func (pi *PInput) serialize(w io.Writer) error {
 		}
 	}
 
+	if psbtVersion >= 2 {
+		if pi.PrevoutHash != nil {
+			err := serializeKVPairWithType(
+				w, uint8(PrevoutHashInputType), nil,
+				pi.PrevoutHash[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.PrevoutIndex != nil {
+			var valueData [4]byte
+			binary.LittleEndian.PutUint32(valueData[:], *pi.PrevoutIndex)
+			err := serializeKVPairWithType(
+				w, uint8(PrevoutIndexInputType), nil,
+				valueData[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.Sequence != nil {
+			var valueData [4]byte
+			binary.LittleEndian.PutUint32(valueData[:], *pi.Sequence)
+			err := serializeKVPairWithType(
+				w, uint8(SequenceInputType), nil,
+				valueData[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.RequiredTimeLockTime != nil {
+			var valueData [4]byte
+			binary.LittleEndian.PutUint32(valueData[:], *pi.RequiredTimeLockTime)
+			err := serializeKVPairWithType(
+				w, uint8(RequiredTimeLocktimeInputType), nil,
+				valueData[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.RequiredHeightLockTime != nil {
+			var valueData [4]byte
+			binary.LittleEndian.PutUint32(valueData[:], *pi.RequiredHeightLockTime)
+			err := serializeKVPairWithType(
+				w, uint8(RequiredHeightLocktimeInputType), nil,
+				valueData[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebOutputId != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebSpentOutputIdType), nil,
+				pi.MwebOutputId[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebCommit != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebSpentOutputCommitType), nil,
+				pi.MwebCommit[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebOutputPubkey != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebSpentOutputPubKeyType), nil,
+				pi.MwebOutputPubkey[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebInputPubkey != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebInputPubKeyType), nil,
+				pi.MwebInputPubkey[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebFeatures != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebInputFeaturesType), nil,
+				[]byte{byte(*pi.MwebFeatures)},
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(pi.MwebExtraData) > 0 {
+			err := serializeKVPairWithType(w, uint8(MwebInputExtraDataType), nil, pi.MwebExtraData)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebInputSig != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebInputSignatureType), nil,
+				pi.MwebInputSig[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.MwebInputSig == nil {
+			if pi.MwebAddressIndex != nil {
+				var buf [4]byte
+				binary.LittleEndian.PutUint32(buf[:], *pi.MwebAddressIndex)
+				err := serializeKVPairWithType(
+					w, uint8(MwebAddressIndexType), nil,
+					buf[:],
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if pi.MwebAmount != nil {
+				var buf [8]byte
+				binary.LittleEndian.PutUint64(buf[:], uint64(*pi.MwebAmount))
+				err := serializeKVPairWithType(
+					w, uint8(MwebInputAmountType), nil,
+					buf[:],
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if pi.MwebSharedSecret != nil {
+				err := serializeKVPairWithType(
+					w, uint8(MwebSharedSecretType), nil,
+					pi.MwebSharedSecret[:],
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if pi.MwebKeyExchangePubkey != nil {
+				err := serializeKVPairWithType(
+					w, uint8(MwebKeyExchangePubKeyType), nil,
+					pi.MwebKeyExchangePubkey[:],
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if pi.MwebMasterScanKey != nil {
+				scanKey := pi.MwebMasterScanKey
+				err := serializeKVPairWithType(w, uint8(MwebMasterScanKeyOriginType), scanKey.PubKey,
+					SerializeBIP32Derivation(scanKey.MasterKeyFingerprint, scanKey.Bip32Path),
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if pi.MwebMasterSpendKey != nil {
+				spendKey := pi.MwebMasterSpendKey
+				err := serializeKVPairWithType(w, uint8(MwebMasterSpendKeyOriginType), spendKey.PubKey,
+					SerializeBIP32Derivation(spendKey.MasterKeyFingerprint, spendKey.Bip32Path),
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	// Unknown is a special case; we don't have a key type, only a key and
 	// a value field.
 	for _, kv := range pi.Unknowns {
@@ -599,6 +1050,11 @@ func (pi *PInput) serialize(w io.Writer) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	separator := []byte{0x00}
+	if _, err := w.Write(separator); err != nil {
+		return err
 	}
 
 	return nil

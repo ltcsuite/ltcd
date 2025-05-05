@@ -5,6 +5,7 @@
 package psbt
 
 import (
+	"github.com/ltcsuite/ltcd/ltcutil"
 	"github.com/ltcsuite/ltcd/wire"
 )
 
@@ -36,28 +37,56 @@ func New(inputs []*wire.OutPoint,
 
 	unsignedTx := wire.NewMsgTx(version)
 	unsignedTx.LockTime = nLockTime
+
+	var psbtInputs []PInput
 	for i, in := range inputs {
 		unsignedTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *in,
 			Sequence:         nSequences[i],
 		})
-	}
-	for _, out := range outputs {
-		unsignedTx.AddTxOut(out)
+		psbtInputs = append(psbtInputs, PInput{
+			PrevoutHash:  &in.Hash,
+			PrevoutIndex: &in.Index,
+			Sequence:     &nSequences[i],
+		})
 	}
 
-	// The input and output lists are empty, but there is a list of those
-	// two lists, and each one must be of length matching the unsigned
-	// transaction; the unknown list can be nil.
-	pInputs := make([]PInput, len(unsignedTx.TxIn))
-	pOutputs := make([]POutput, len(unsignedTx.TxOut))
+	var psbtOutputs []POutput
+	for _, out := range outputs {
+		unsignedTx.AddTxOut(out)
+		amount := ltcutil.Amount(out.Value)
+		psbtOutputs = append(psbtOutputs, POutput{
+			Amount:   amount,
+			PKScript: out.PkScript,
+		})
+	}
+
+	return newWithVersion(0, unsignedTx, psbtInputs, psbtOutputs, nil, version, &nLockTime)
+}
+
+func NewV2(inputs []PInput, outputs []POutput, kernels []PKernel,
+	txVersion int32, fallbackLocktime *uint32) (*Packet, error) {
+
+	return newWithVersion(2, nil, inputs, outputs, kernels, txVersion, fallbackLocktime)
+}
+
+func newWithVersion(psbtVersion uint32, unsignedTx *wire.MsgTx, inputs []PInput, outputs []POutput, kernels []PKernel,
+	txVersion int32, fallbackLocktime *uint32) (*Packet, error) {
+
+	if txVersion < MinTxVersion {
+		return nil, ErrInvalidPsbtFormat
+	}
 
 	// This new Psbt is "raw" and contains no key-value fields, so sanity
 	// checking with c.Cpsbt.SanityCheck() is not required.
 	return &Packet{
-		UnsignedTx: unsignedTx,
-		Inputs:     pInputs,
-		Outputs:    pOutputs,
-		Unknowns:   nil,
+		PsbtVersion:      psbtVersion,
+		UnsignedTx:       unsignedTx,
+		TxVersion:        txVersion,
+		FallbackLocktime: fallbackLocktime,
+		Inputs:           inputs,
+		Outputs:          outputs,
+		Kernels:          kernels,
+		Unknowns:         nil,
 	}, nil
 }

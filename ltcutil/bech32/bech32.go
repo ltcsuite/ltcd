@@ -272,8 +272,8 @@ func DecodeNoLimit(bech string) (string, []byte, error) {
 // Note that the returned data is 5-bit (base32) encoded and the human-readable
 // part will be lowercase.
 func Decode(bech string) (string, []byte, error) {
-	// The maximum allowed length for a bech32 string is 90.
-	if len(bech) > 90 {
+	// The maximum allowed length for a bech32 string is 130.
+	if len(bech) > 130 {
 		return "", nil, ErrInvalidLength(len(bech))
 	}
 
@@ -286,8 +286,8 @@ func Decode(bech string) (string, []byte, error) {
 // be used when decoding segwit addresses, as it enables additional
 // verification to ensure the proper checksum is used.
 func DecodeGeneric(bech string) (string, []byte, Version, error) {
-	// The maximum allowed length for a bech32 string is 90.
-	if len(bech) > 90 {
+	// The maximum allowed length for a bech32 string is 130.
+	if len(bech) > 130 {
 		return "", nil, VersionUnknown, ErrInvalidLength(len(bech))
 	}
 
