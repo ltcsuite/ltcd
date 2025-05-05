@@ -2,11 +2,13 @@ package psbt
 
 import (
 	"encoding/binary"
+	"io"
+	"sort"
+
 	"github.com/ltcsuite/ltcd/ltcutil"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
-	"io"
-	"sort"
+	"github.com/ltcsuite/secp256k1"
 )
 
 // POutput is a struct encapsulating all the data that can be attached
@@ -26,7 +28,7 @@ type POutput struct {
 	SenderPubkey           *mw.PublicKey
 	OutputPubkey           *mw.PublicKey
 	MwebStandardFields     *standardMwebOutputFields
-	RangeProof             *mw.RangeProof
+	RangeProof             *secp256k1.RangeProof
 	MwebSignature          *mw.Signature
 	MwebExtraData          []byte
 	Unknowns               []*Unknown
@@ -313,7 +315,7 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
-			po.RangeProof = mw.ReadRangeProof(kvPair.valueData)
+			po.RangeProof = secp256k1.ReadRangeProof(kvPair.valueData)
 			if po.RangeProof == nil {
 				return ErrInvalidPsbtFormat
 			}

@@ -17,8 +17,9 @@ require (
 require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/ltcsuite/secp256k1 v0.1.1 // indirect
+	github.com/stretchr/testify v1.8.3 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
-
-replace github.com/ltcsuite/ltcd => ../

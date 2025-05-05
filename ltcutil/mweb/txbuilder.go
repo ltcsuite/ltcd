@@ -11,6 +11,7 @@ import (
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcsuite/secp256k1"
 	"lukechampine.com/blake3"
 )
 
@@ -220,8 +221,8 @@ func createOutput(recipient *Recipient, senderKey *mw.SecretKey) (
 
 	// Probably best to store sender_key so sender
 	// can identify all outputs they've sent?
-	rangeProof := mw.NewRangeProof(recipient.Value,
-		blind, make([]byte, 20), messageBuf.Bytes())
+	rangeProof := secp256k1.NewRangeProof(recipient.Value,
+		*blind, make([]byte, 20), messageBuf.Bytes())
 	rangeProofHash := blake3.Sum256(rangeProof[:])
 
 	// Sign the output

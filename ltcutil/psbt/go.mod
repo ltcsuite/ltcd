@@ -9,6 +9,7 @@ require (
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2
 	github.com/ltcsuite/ltcd/ltcutil v1.1.4-0.20240325211356-491681cb5556
 	github.com/stretchr/testify v1.8.3
+	lukechampine.com/blake3 v1.2.1
 )
 
 require (
@@ -24,9 +25,4 @@ require (
 	golang.org/x/sys v0.13.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	lukechampine.com/blake3 v1.2.1 // indirect
 )
-
-replace github.com/ltcsuite/ltcd => ../..
-
-replace github.com/ltcsuite/ltcd/ltcutil => ../

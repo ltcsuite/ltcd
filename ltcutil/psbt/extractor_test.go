@@ -1,8 +1,10 @@
 package psbt
 
 import (
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"testing"
+
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/secp256k1"
 
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/wire"
@@ -40,7 +42,7 @@ func TestExtract_ValidMWEB(t *testing.T) {
 			MwebFeatures:  &outputFeatures,
 			OutputCommit:  &mw.Commitment{},
 			SenderPubkey:  &mw.PublicKey{},
-			RangeProof:    &mw.RangeProof{},
+			RangeProof:    &secp256k1.RangeProof{},
 			MwebSignature: &mw.Signature{},
 		}},
 		Kernels: []PKernel{{
