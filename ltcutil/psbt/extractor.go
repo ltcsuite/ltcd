@@ -68,11 +68,54 @@ func Extract(p *Packet) (*wire.MsgTx, error) {
 	return finalTx, nil
 }
 
+func ExtractUnsignedTx(p *Packet) (*wire.MsgTx, error) {
+	if p.PsbtVersion >= 2 {
+		tx := new(wire.MsgTx)
+		tx.Version = p.TxVersion
+
+		// TODO: Compute actual lock time
+		if p.FallbackLocktime != nil {
+			tx.LockTime = *p.FallbackLocktime
+		}
+
+		for _, pi := range p.Inputs {
+			if !pi.isMWEB() {
+				txin, err := extractTxIn(&pi, false)
+				if err != nil {
+					return nil, err
+				}
+
+				tx.AddTxIn(txin)
+			}
+		}
+
+		for _, output := range p.Outputs {
+			if !output.isMWEB() {
+				txout := wire.TxOut{Value: int64(output.Amount), PkScript: output.PKScript}
+				tx.AddTxOut(&txout)
+			}
+		}
+
+		// TODO: Include MWEB
+
+		return tx, nil
+	} else {
+		return p.UnsignedTx.Copy(), nil
+	}
+}
+
 func extractV2(p *Packet) (*wire.MsgTx, error) {
 	tx := new(wire.MsgTx)
+	tx.Version = p.TxVersion
+
+	// TODO: Compute actual lock time
+	if p.FallbackLocktime != nil {
+		tx.LockTime = *p.FallbackLocktime
+	}
+
 	for _, pi := range p.Inputs {
 		if !pi.isMWEB() {
-			txin, err := extractTxIn(&pi)
+			txin, err := extractTxIn(&pi, true)
 			if err != nil {
 				return nil, err
 			}
@@ -157,21 +200,24 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 	return tx, nil
 }
 
-func extractTxIn(pi *PInput) (*wire.TxIn, error) {
+func extractTxIn(pi *PInput, includeSignature bool) (*wire.TxIn, error) {
 	if pi.PrevoutHash == nil || pi.PrevoutIndex == nil {
 		return nil, errors.New("input missing previous outpoint info")
 	}
 
 	var txin wire.TxIn
 	txin.PreviousOutPoint = wire.OutPoint{Hash: *pi.PrevoutHash, Index: *pi.PrevoutIndex}
-	txin.SignatureScript = pi.FinalScriptSig
-	if pi.FinalScriptWitness != nil {
-		witness, err := extractTxWitness(pi.FinalScriptWitness)
-		if err != nil {
-			return nil, err
-		}
 
-		txin.Witness = witness
+	if includeSignature {
+		txin.SignatureScript = pi.FinalScriptSig
+		if pi.FinalScriptWitness != nil {
+			witness, err := extractTxWitness(pi.FinalScriptWitness)
+			if err != nil {
+				return nil, err
+			}
+
+			txin.Witness = witness
+		}
 	}
 
 	txin.Sequence = 0xffffffff

@@ -17,7 +17,6 @@ import (
 	"math/big"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
@@ -524,11 +523,10 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 	return blind, stealthKey, nil
 }
 
-type AddressIndexLookupFunc func(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32
+type OutputKeyDerivationFunc func(spentOutputPk *mw.PublicKey, keyExchangePubKey *mw.PublicKey, sharedSecret *mw.SecretKey) (preBlind *mw.BlindingFactor, outputSpendKey *mw.SecretKey, err error)
 
 type BasicMwebInputSigner struct {
-	Keychain           *mweb.Keychain
-	LookupAddressIndex AddressIndexLookupFunc
+	DeriveOutputKeys OutputKeyDerivationFunc
 }
 
 func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
@@ -536,29 +534,12 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 		return nil, errors.New("stealth key feature bit is required to ensure key safety")
 	}
 
-	sharedSecret := spentOutputSharedSecret
-	if sharedSecret == nil {
-		if keyExchangePubKey == nil {
-			return nil, errors.New("key exchange pubkey or shared secret needed")
-		}
-		sharedSecretPk := keyExchangePubKey.Mul(s.Keychain.Scan)
-		sharedSecret = (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sharedSecretPk[:]))
+	preBlind, outputSpendKey, err := s.DeriveOutputKeys(&spentOutputPk, keyExchangePubKey, spentOutputSharedSecret)
+	if err != nil {
+		return nil, err
 	}
 
-	preBlind := (*mw.BlindingFactor)(mw.Hashed(mw.HashTagBlind, sharedSecret[:]))
 	blind := mw.BlindSwitch(preBlind, amount)
-
-	addrB := spentOutputPk.Div((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-	addrA := addrB.Mul(s.Keychain.Scan)
-	address := mw.StealthAddress{Scan: addrA, Spend: addrB}
-
-	addrIdx := s.LookupAddressIndex(s.Keychain, &address)
-	if addrIdx == nil {
-		return nil, errors.New("address not found")
-	}
-
-	addrSpendKey := s.Keychain.SpendKey(*addrIdx)
-	outputSpendKey := addrSpendKey.Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
 
 	var ephemeralKey mw.SecretKey
 	if _, err := rand.Read(ephemeralKey[:]); err != nil {
@@ -601,16 +582,4 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 		stealthOffsetTweak: *ephemeralKey.Sub(outputSpendKey),
 		inputPubKey:        inputPubKey,
 	}, nil
-}
-
-func NaiveAddressLookup(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32 {
-	var addrIdx *uint32
-	for i := uint32(0); i < uint32(1000); i++ {
-		iAddr := keychain.Address(i)
-		if iAddr.Equal(stealthAddress) {
-			addrIdx = &i
-			break
-		}
-	}
-	return addrIdx
 }
