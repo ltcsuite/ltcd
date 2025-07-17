@@ -40,6 +40,9 @@ func Extract(p *Packet) (*wire.MsgTx, error) {
 	// First, we'll make a copy of the underlying unsigned transaction (the
 	// initial template) so we don't mutate it during our activates below.
 	finalTx := p.UnsignedTx.Copy()
+	if finalTx == nil {
+		return nil, ErrInvalidPsbtFormat
+	}
 
 	// For each input, we'll now populate any relevant witness and
 	// sigScript data.
@@ -326,6 +329,7 @@ func extractMwebOutput(po *POutput) (*wire.MwebOutput, error) {
 	mwebOutput := &wire.MwebOutput{
 		Commitment:     *po.OutputCommit,
 		SenderPubKey:   *po.SenderPubkey,
+		ReceiverPubKey: *po.OutputPubkey,
 		Message:        outputMessage,
 		RangeProof:     &rangeProof,
 		RangeProofHash: blake3.Sum256(rangeProof[:]),
