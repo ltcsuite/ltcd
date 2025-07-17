@@ -15,6 +15,8 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
@@ -92,14 +94,24 @@ func ExtractUnsignedTx(p *Packet) (*wire.MsgTx, error) {
 			}
 		}
 
-		for _, output := range p.Outputs {
-			if !output.isMWEB() {
-				txout := wire.TxOut{Value: int64(output.Amount), PkScript: output.PKScript}
+		for _, po := range p.Outputs {
+			if !po.isMWEB() {
+				txout := wire.TxOut{Value: int64(po.Amount), PkScript: po.PKScript}
 				tx.AddTxOut(&txout)
 			}
 		}
 
-		// TODO: Include MWEB
+		for _, pk := range p.Kernels {
+			if pk.PeginAmount != nil {
+				kernelHash := &chainhash.Hash{}
+				kernel, _ := extractKernel(&pk)
+				if kernel != nil {
+					kernelHash = kernel.Hash()
+				}
+				pegin := mweb.NewPegin(uint64(*pk.PeginAmount), kernelHash)
+				tx.AddTxOut(pegin)
+			}
+		}
 
 		return tx, nil
 	} else {
@@ -171,6 +183,11 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 				return nil, err
 			}
 			kernels = append(kernels, kernel)
+
+			if kernel.Pegin > 0 {
+				pegin := mweb.NewPegin(kernel.Pegin, kernel.Hash())
+				tx.AddTxOut(pegin)
+			}
 		}
 
 		// Sort components before assembling txBody
