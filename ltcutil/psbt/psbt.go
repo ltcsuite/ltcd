@@ -12,10 +12,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"io"
+
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
 	"github.com/ltcsuite/ltcd/ltcutil/hdkeychain"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
-	"io"
 
 	"github.com/ltcsuite/ltcd/ltcutil"
 	"github.com/ltcsuite/ltcd/wire"
@@ -319,16 +320,6 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 	// Next we parse the GLOBAL section. Parse all keys and break after separator
 	for {
-		kvPair, err := getKVPair(r)
-		if err != nil {
-			return nil, err
-		}
-
-		// If this is separator byte (nil kvPair), this section is done.
-		if kvPair == nil {
-			break
-		}
-
 		// According to BIP-0174, <key> := <keylen><keytype><keydata> must be unique per map
 		if !globalKeys.addKey(kvPair.keyType, kvPair.keyData) {
 			return nil, ErrDuplicateKey
@@ -449,6 +440,16 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 			unknownSlice = append(unknownSlice, newUnknown)
 		}
+
+		kvPair, err = getKVPair(r)
+		if err != nil {
+			return nil, err
+		}
+
+		// If this is separator byte (nil kvPair), this section is done.
+		if kvPair == nil {
+			break
+		}
 	}
 
 	if psbtVersion == nil || txVersion == nil || inputCount == nil || outputCount == nil || kernelCount == nil {
@@ -541,6 +542,13 @@ func (p *Packet) Serialize(w io.Writer) error {
 			w, uint8(UnsignedTxType), nil, serializedTx.Bytes(),
 		)
 		if err != nil {
+			return err
+		}
+	} else {
+		// Psbt Version
+		var psbtVersionBytes [4]byte
+		binary.LittleEndian.PutUint32(psbtVersionBytes[:], uint32(p.PsbtVersion))
+		if err := serializeKVPairWithType(w, uint8(VersionType), nil, psbtVersionBytes[:]); err != nil {
 			return err
 		}
 	}
@@ -801,8 +809,29 @@ func (p *Packet) getPrevOut(i int) (*wire.OutPoint, *chainhash.Hash) {
 	pInput := p.Inputs[i]
 	if pInput.PrevoutHash == nil || pInput.PrevoutIndex == nil {
 		return nil, pInput.MwebOutputId
-	}
+	} // TODO: Return synthetic OutPoint?
 
 	prevout := wire.OutPoint{Hash: *pInput.PrevoutHash, Index: *pInput.PrevoutIndex}
 	return &prevout, nil
+}
+
+func (p *Packet) BuildTxOuts() []*wire.TxOut {
+	if p.PsbtVersion == 0 {
+		return p.UnsignedTx.TxOut
+	}
+
+	txouts := make([]*wire.TxOut, len(p.Outputs))
+	for idx, pOutput := range p.Outputs {
+		var txout wire.TxOut
+		txout.Value = int64(pOutput.Amount)
+		if pOutput.StealthAddress != nil {
+			pkScript := append(pOutput.StealthAddress.Scan[:], pOutput.StealthAddress.Spend[:]...)
+			copy(txout.PkScript[:], pkScript)
+		} else {
+			copy(txout.PkScript[:], pOutput.PKScript)
+		}
+		txouts[idx] = &txout
+	}
+
+	return txouts
 }

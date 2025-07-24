@@ -17,7 +17,6 @@ import (
 	"math/big"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
@@ -336,21 +335,11 @@ func signMwebOutput(output *POutput) (*mw.BlindingFactor, *mw.SecretKey, error) 
 
 	// Calculate unique sending key 's' = H(T_send, A, B, v, n)
 	h := blake3.New(32, nil)
-	if err := binary.Write(h, binary.LittleEndian, mw.HashTagSendKey); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(address.A()[:]); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(address.B()[:]); err != nil {
-		return nil, nil, err
-	}
-	if err := binary.Write(h, binary.LittleEndian, amount); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(n.FillBytes(make([]byte, 16))); err != nil {
-		return nil, nil, err
-	}
+	_ = binary.Write(h, binary.LittleEndian, mw.HashTagSendKey)
+	_, _ = h.Write(address.A()[:])
+	_, _ = h.Write(address.B()[:])
+	_ = binary.Write(h, binary.LittleEndian, amount)
+	_, _ = h.Write(n.FillBytes(make([]byte, 16)))
 	s := (*mw.SecretKey)(h.Sum(nil))
 
 	// Derive shared secret 't' = H(T_derive, s*A)
@@ -398,21 +387,11 @@ func signMwebOutput(output *POutput) (*mw.BlindingFactor, *mw.SecretKey, error) 
 
 	// Sign the output
 	h = blake3.New(32, nil)
-	if _, err := h.Write(outputCommit[:]); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(Ks[:]); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(Ko[:]); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(message.Hash()[:]); err != nil {
-		return nil, nil, err
-	}
-	if _, err := h.Write(rangeProofHash[:]); err != nil {
-		return nil, nil, err
-	}
+	_, _ = h.Write(outputCommit[:])
+	_, _ = h.Write(Ks[:])
+	_, _ = h.Write(Ko[:])
+	_, _ = h.Write(message.Hash()[:])
+	_, _ = h.Write(rangeProofHash[:])
 	signature := mw.Sign(senderKey, h.Sum(nil))
 
 	var encryptedNonce [16]byte
@@ -493,13 +472,8 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 		stealthExcess = *(stealthKey).PubKey()
 
 		h := blake3.New(32, nil)
-		if _, err := h.Write(kernelExcess.PubKey()[:]); err != nil {
-			return nil, nil, err
-		}
-		if _, err := h.Write(stealthExcess[:]); err != nil {
-			return nil, nil, err
-		}
-
+		_, _ = h.Write(kernelExcess.PubKey()[:])
+		_, _ = h.Write(stealthExcess[:])
 		sigKey = sigKey.Mul((*mw.SecretKey)(h.Sum(nil))).
 			Add(stealthKey)
 	}
@@ -524,11 +498,10 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 	return blind, stealthKey, nil
 }
 
-type AddressIndexLookupFunc func(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32
+type OutputKeyDerivationFunc func(spentOutputPk *mw.PublicKey, keyExchangePubKey *mw.PublicKey, sharedSecret *mw.SecretKey) (preBlind *mw.BlindingFactor, outputSpendKey *mw.SecretKey, err error)
 
 type BasicMwebInputSigner struct {
-	Keychain           *mweb.Keychain
-	LookupAddressIndex AddressIndexLookupFunc
+	DeriveOutputKeys OutputKeyDerivationFunc
 }
 
 func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
@@ -536,32 +509,15 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 		return nil, errors.New("stealth key feature bit is required to ensure key safety")
 	}
 
-	sharedSecret := spentOutputSharedSecret
-	if sharedSecret == nil {
-		if keyExchangePubKey == nil {
-			return nil, errors.New("key exchange pubkey or shared secret needed")
-		}
-		sharedSecretPk := keyExchangePubKey.Mul(s.Keychain.Scan)
-		sharedSecret = (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sharedSecretPk[:]))
+	preBlind, outputSpendKey, err := s.DeriveOutputKeys(&spentOutputPk, keyExchangePubKey, spentOutputSharedSecret)
+	if err != nil {
+		return nil, err
 	}
 
-	preBlind := (*mw.BlindingFactor)(mw.Hashed(mw.HashTagBlind, sharedSecret[:]))
 	blind := mw.BlindSwitch(preBlind, amount)
 
-	addrB := spentOutputPk.Div((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-	addrA := addrB.Mul(s.Keychain.Scan)
-	address := mw.StealthAddress{Scan: addrA, Spend: addrB}
-
-	addrIdx := s.LookupAddressIndex(s.Keychain, &address)
-	if addrIdx == nil {
-		return nil, errors.New("address not found")
-	}
-
-	addrSpendKey := s.Keychain.SpendKey(*addrIdx)
-	outputSpendKey := addrSpendKey.Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, sharedSecret[:])))
-
 	var ephemeralKey mw.SecretKey
-	if _, err := rand.Read(ephemeralKey[:]); err != nil {
+	if _, err = rand.Read(ephemeralKey[:]); err != nil {
 		return nil, err
 	}
 
@@ -569,12 +525,8 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 
 	// Hash keys (K_i||K_o)
 	h := blake3.New(32, nil)
-	if _, err := h.Write(inputPubKey[:]); err != nil {
-		return nil, err
-	}
-	if _, err := h.Write(spentOutputPk[:]); err != nil {
-		return nil, err
-	}
+	_, _ = h.Write(inputPubKey[:])
+	_, _ = h.Write(spentOutputPk[:])
 	keyHash := (*mw.SecretKey)(h.Sum(nil))
 
 	// Calculate aggregated key k_agg = k_i + HASH(K_i||K_o) * k_o
@@ -582,16 +534,11 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 
 	// Hash message
 	h = blake3.New(32, nil)
-	if err := binary.Write(h, binary.LittleEndian, features); err != nil {
-		return nil, err
-	}
-	if _, err := h.Write(spentOutputId[:]); err != nil {
-		return nil, err
-	}
+	_ = binary.Write(h, binary.LittleEndian, features)
+	_, _ = h.Write(spentOutputId[:])
+
 	if features&wire.MwebInputExtraDataFeatureBit > 0 {
-		if err := wire.WriteVarBytes(h, 0, extraData); err != nil {
-			return nil, err
-		}
+		_ = wire.WriteVarBytes(h, 0, extraData)
 	}
 	msgHash := h.Sum(nil)
 
@@ -601,16 +548,4 @@ func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, s
 		stealthOffsetTweak: *ephemeralKey.Sub(outputSpendKey),
 		inputPubKey:        inputPubKey,
 	}, nil
-}
-
-func NaiveAddressLookup(keychain *mweb.Keychain, stealthAddress *mw.StealthAddress) *uint32 {
-	var addrIdx *uint32
-	for i := uint32(0); i < uint32(1000); i++ {
-		iAddr := keychain.Address(i)
-		if iAddr.Equal(stealthAddress) {
-			addrIdx = &i
-			break
-		}
-	}
-	return addrIdx
 }

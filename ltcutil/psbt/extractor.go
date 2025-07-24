@@ -15,6 +15,8 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
@@ -40,6 +42,9 @@ func Extract(p *Packet) (*wire.MsgTx, error) {
 	// First, we'll make a copy of the underlying unsigned transaction (the
 	// initial template) so we don't mutate it during our activates below.
 	finalTx := p.UnsignedTx.Copy()
+	if finalTx == nil {
+		return nil, ErrInvalidPsbtFormat
+	}
 
 	// For each input, we'll now populate any relevant witness and
 	// sigScript data.
@@ -68,11 +73,64 @@ func Extract(p *Packet) (*wire.MsgTx, error) {
 	return finalTx, nil
 }
 
+func ExtractUnsignedTx(p *Packet) (*wire.MsgTx, error) {
+	if p.PsbtVersion >= 2 {
+		tx := new(wire.MsgTx)
+		tx.Version = p.TxVersion
+
+		// TODO: Compute actual lock time
+		if p.FallbackLocktime != nil {
+			tx.LockTime = *p.FallbackLocktime
+		}
+
+		for _, pi := range p.Inputs {
+			if !pi.isMWEB() {
+				txin, err := extractTxIn(&pi, false)
+				if err != nil {
+					return nil, err
+				}
+
+				tx.AddTxIn(txin)
+			}
+		}
+
+		for _, po := range p.Outputs {
+			if !po.isMWEB() {
+				txout := wire.TxOut{Value: int64(po.Amount), PkScript: po.PKScript}
+				tx.AddTxOut(&txout)
+			}
+		}
+
+		for _, pk := range p.Kernels {
+			if pk.PeginAmount != nil {
+				kernelHash := &chainhash.Hash{}
+				kernel, _ := extractKernel(&pk)
+				if kernel != nil {
+					kernelHash = kernel.Hash()
+				}
+				pegin := mweb.NewPegin(uint64(*pk.PeginAmount), kernelHash)
+				tx.AddTxOut(pegin)
+			}
+		}
+
+		return tx, nil
+	} else {
+		return p.UnsignedTx.Copy(), nil
+	}
+}
+
 func extractV2(p *Packet) (*wire.MsgTx, error) {
 	tx := new(wire.MsgTx)
+	tx.Version = p.TxVersion
+
+	// TODO: Compute actual lock time
+	if p.FallbackLocktime != nil {
+		tx.LockTime = *p.FallbackLocktime
+	}
+
 	for _, pi := range p.Inputs {
 		if !pi.isMWEB() {
-			txin, err := extractTxIn(&pi)
+			txin, err := extractTxIn(&pi, true)
 			if err != nil {
 				return nil, err
 			}
@@ -125,6 +183,11 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 				return nil, err
 			}
 			kernels = append(kernels, kernel)
+
+			if kernel.Pegin > 0 {
+				pegin := mweb.NewPegin(kernel.Pegin, kernel.Hash())
+				tx.AddTxOut(pegin)
+			}
 		}
 
 		// Sort components before assembling txBody
@@ -157,21 +220,24 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 	return tx, nil
 }
 
-func extractTxIn(pi *PInput) (*wire.TxIn, error) {
+func extractTxIn(pi *PInput, includeSignature bool) (*wire.TxIn, error) {
 	if pi.PrevoutHash == nil || pi.PrevoutIndex == nil {
 		return nil, errors.New("input missing previous outpoint info")
 	}
 
 	var txin wire.TxIn
 	txin.PreviousOutPoint = wire.OutPoint{Hash: *pi.PrevoutHash, Index: *pi.PrevoutIndex}
-	txin.SignatureScript = pi.FinalScriptSig
-	if pi.FinalScriptWitness != nil {
-		witness, err := extractTxWitness(pi.FinalScriptWitness)
-		if err != nil {
-			return nil, err
-		}
 
-		txin.Witness = witness
+	if includeSignature {
+		txin.SignatureScript = pi.FinalScriptSig
+		if pi.FinalScriptWitness != nil {
+			witness, err := extractTxWitness(pi.FinalScriptWitness)
+			if err != nil {
+				return nil, err
+			}
+
+			txin.Witness = witness
+		}
 	}
 
 	txin.Sequence = 0xffffffff
@@ -280,6 +346,7 @@ func extractMwebOutput(po *POutput) (*wire.MwebOutput, error) {
 	mwebOutput := &wire.MwebOutput{
 		Commitment:     *po.OutputCommit,
 		SenderPubKey:   *po.SenderPubkey,
+		ReceiverPubKey: *po.OutputPubkey,
 		Message:        outputMessage,
 		RangeProof:     &rangeProof,
 		RangeProofHash: blake3.Sum256(rangeProof[:]),
