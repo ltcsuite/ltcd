@@ -826,9 +826,10 @@ func (p *Packet) BuildTxOuts() []*wire.TxOut {
 		txout.Value = int64(pOutput.Amount)
 		if pOutput.StealthAddress != nil {
 			pkScript := append(pOutput.StealthAddress.Scan[:], pOutput.StealthAddress.Spend[:]...)
-			copy(txout.PkScript[:], pkScript)
+			txout.PkScript = pkScript
 		} else {
-			copy(txout.PkScript[:], pOutput.PKScript)
+			txout.PkScript = make([]byte, len(pOutput.PKScript))
+			copy(txout.PkScript, pOutput.PKScript)
 		}
 		txouts[idx] = &txout
 	}

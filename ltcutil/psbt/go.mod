@@ -7,7 +7,7 @@ require (
 	github.com/ltcsuite/ltcd v0.23.6-0.20250505084124-c37ac1524e04
 	github.com/ltcsuite/ltcd/btcec/v2 v2.3.2
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2
-	github.com/ltcsuite/ltcd/ltcutil v1.1.4-0.20250505084546-96f4d3cd9630
+	github.com/ltcsuite/ltcd/ltcutil v1.1.5-0.20250724031157-a9e8b8c8340e
 	github.com/ltcsuite/secp256k1 v0.1.1
 	github.com/stretchr/testify v1.8.3
 	lukechampine.com/blake3 v1.2.1
