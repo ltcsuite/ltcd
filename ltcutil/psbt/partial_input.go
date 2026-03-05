@@ -620,7 +620,7 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 				return err
 			}
 
-			pi.MwebMasterScanKey = &Bip32Derivation{
+			pi.MwebMasterSpendKey = &Bip32Derivation{
 				PubKey:               kvPair.keyData,
 				MasterKeyFingerprint: master,
 				Bip32Path:            derivationPath,
