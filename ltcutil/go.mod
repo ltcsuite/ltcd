@@ -1,6 +1,8 @@
 module github.com/ltcsuite/ltcd/ltcutil
 
-go 1.17
+go 1.23.0
+
+toolchain go1.24.6
 
 require (
 	github.com/aead/siphash v1.0.1
@@ -11,13 +13,15 @@ require (
 	github.com/ltcsuite/ltcd/btcec/v2 v2.3.2
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2
 	github.com/ltcsuite/secp256k1 v0.1.1
-	golang.org/x/crypto v0.7.0
+	golang.org/x/crypto v0.38.0
 	lukechampine.com/blake3 v1.2.1
 )
 
 require (
-	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
+	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
-	golang.org/x/sys v0.13.0 // indirect
+	github.com/stretchr/testify v1.10.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
 )
