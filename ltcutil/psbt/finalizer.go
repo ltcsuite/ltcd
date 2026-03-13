@@ -165,6 +165,13 @@ func MaybeFinalize(p *Packet, inIndex int) (bool, error) {
 		return true, nil
 	}
 
+	// MWEB inputs are finalized via SignMwebComponents, not through
+	// the regular finalization path. If an MWEB input reaches here
+	// without being finalized, it means signing was not completed.
+	if pInput.isMWEB() {
+		return false, ErrIncompletePSBT
+	}
+
 	if !isFinalizable(p, inIndex) {
 		return false, ErrNotFinalizable
 	}
@@ -296,6 +303,35 @@ func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 		if err != nil {
 			return err
 		}
+	} else if txscript.IsPayToWitnessPubKeyHash(pInput.RedeemScript) {
+		// P2SH-P2WPKH: the redeem script is a witness program.
+		// sigScript pushes the redeem script, witness has (sig, pubkey).
+		if len(sigs) != 1 || len(pubKeys) != 1 {
+			return ErrNotFinalizable
+		}
+
+		builder := txscript.NewScriptBuilder()
+		builder.AddData(pInput.RedeemScript)
+		sigScript, err = builder.Script()
+		if err != nil {
+			return err
+		}
+
+		serializedWitness, err := writePKHWitness(sigs[0], pubKeys[0])
+		if err != nil {
+			return err
+		}
+
+		// Extract WitnessUtxo from the NonWitnessUtxo for the
+		// finalized witness input.
+		outIndex := p.UnsignedTx.TxIn[inIndex].PreviousOutPoint.Index
+		witnessUtxo := pInput.NonWitnessUtxo.TxOut[outIndex]
+
+		newInput := NewPsbtInput(nil, witnessUtxo)
+		newInput.FinalScriptSig = sigScript
+		newInput.FinalScriptWitness = serializedWitness
+		p.Inputs[inIndex] = *newInput
+		return nil
 	} else {
 		// This is assumed p2sh multisig Given redeemScript and pubKeys
 		// we can decide in what order signatures must be appended.

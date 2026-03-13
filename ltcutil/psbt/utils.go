@@ -471,12 +471,16 @@ func InputsReadyToSign(packet *Packet) error {
 
 	for i, input := range packet.Inputs {
 		if input.isMWEB() {
-			if input.MwebAmount == nil {
-				return errors.New("input amount missing")
-			} else if input.MwebOutputPubkey == nil {
-				return errors.New("spent output pubkey missing")
-			} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
-				return errors.New("input shared secret missing")
+			// Already-signed MWEB inputs have presign fields
+			// (amount, shared secret, etc.) stripped by the signer.
+			if !input.isFinalized() {
+				if input.MwebAmount == nil {
+					return errors.New("input amount missing")
+				} else if input.MwebOutputPubkey == nil {
+					return errors.New("spent output pubkey missing")
+				} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
+					return errors.New("input shared secret missing")
+				}
 			}
 		} else if input.NonWitnessUtxo == nil && input.WitnessUtxo == nil {
 			return fmt.Errorf("invalid PSBT, input with index %d "+

@@ -313,13 +313,19 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		inputCount = intPtr(len(msgTx.TxIn))
 		outputCount = intPtr(len(msgTx.TxOut))
 		kernelCount = intPtr(0)
+
+		// Advance past the already-processed UnsignedTx key
+		kvPair, err = getKVPair(r)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	globalKeys := newKeySet()
 	var unknownSlice []*Unknown
 
 	// Next we parse the GLOBAL section. Parse all keys and break after separator
-	for {
+	for kvPair != nil {
 		// According to BIP-0174, <key> := <keylen><keytype><keydata> must be unique per map
 		if !globalKeys.addKey(kvPair.keyType, kvPair.keyData) {
 			return nil, ErrDuplicateKey
