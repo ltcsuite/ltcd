@@ -440,14 +440,15 @@ func (po *POutput) serialize(w io.Writer, psbtVersion uint32) error {
 	}
 
 	if psbtVersion >= 2 {
-		if po.MwebSignature == nil {
-			if po.StealthAddress != nil {
-				err := serializeKVPairWithType(w, uint8(MwebStealthAddressOutputType), nil,
-					append(po.StealthAddress.Scan[:], po.StealthAddress.Spend[:]...),
-				)
-				if err != nil {
-					return err
-				}
+		// Emit the stealth address whenever present, including on
+		// finalized outputs, so downstream verifiers can rederive
+		// the output pubkeys from (A, B).
+		if po.StealthAddress != nil {
+			err := serializeKVPairWithType(w, uint8(MwebStealthAddressOutputType), nil,
+				append(po.StealthAddress.Scan[:], po.StealthAddress.Spend[:]...),
+			)
+			if err != nil {
+				return err
 			}
 		}
 
