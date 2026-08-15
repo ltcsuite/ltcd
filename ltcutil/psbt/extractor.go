@@ -262,6 +262,13 @@ func extractTxWitness(finalScriptWitness []byte) (wire.TxWitness, error) {
 		return nil, err
 	}
 
+	// Each stack item carries at least a one-byte length prefix, so the
+	// declared count cannot exceed the bytes that remain. Bound it before
+	// allocating to avoid an oversized allocation from untrusted input.
+	if witCount > uint64(witnessReader.Len()) {
+		return nil, ErrInvalidPsbtFormat
+	}
+
 	// Now that we know how many inputs we'll need, we'll
 	// construct a packing slice, then read out each input
 	// (with a varint prefix) from the witnessReader.

@@ -114,8 +114,10 @@ func ReadTaprootBip32Derivation(xOnlyPubKey,
 	}
 
 	// A hash is 32 bytes in size, so we need at least numHashes*32 + 5
-	// bytes to be present.
-	if len(value) < (int(numHashes)*32)+5 {
+	// bytes to be present. Bound numHashes by what the value can hold before
+	// multiplying: a large declared count would otherwise overflow the
+	// size check and drive an oversized allocation from untrusted input.
+	if numHashes > uint64((len(value)-5)/32) {
 		return nil, ErrInvalidPsbtFormat
 	}
 
