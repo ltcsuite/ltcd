@@ -24,42 +24,51 @@ type PKernel struct {
 	Unknowns         []*Unknown
 }
 
-// isFinalized returns true if the kernel has a signature.
-// If the PKernel isFinalized and isSane, a completed wire.MwebKernel should be extractable.
+// isFinalized returns true if the kernel carries everything a completed
+// wire.MwebKernel needs: excess commitment, features byte, and signature.
 func (pk *PKernel) isFinalized() bool {
-	return pk.Signature != nil
+	return pk.Signature != nil && pk.Features != nil &&
+		pk.ExcessCommitment != nil && pk.isSane()
 }
 
-// isSane performs validation based on the kernel's feature bits and returns true if all required fields are present.
+// featuresFromFields derives the feature bits implied by the populated fields.
+func (pk *PKernel) featuresFromFields() wire.MwebKernelFeatureBit {
+	var features wire.MwebKernelFeatureBit
+	if pk.Fee != nil {
+		features |= wire.MwebKernelFeeFeatureBit
+	}
+	if pk.PeginAmount != nil {
+		features |= wire.MwebKernelPeginFeatureBit
+	}
+	if len(pk.PegOuts) > 0 {
+		features |= wire.MwebKernelPegoutFeatureBit
+	}
+	if pk.LockHeight != nil {
+		features |= wire.MwebKernelHeightLockFeatureBit
+	}
+	if pk.StealthExcess != nil {
+		features |= wire.MwebKernelStealthExcessFeatureBit
+	}
+	if len(pk.ExtraData) > 0 {
+		features |= wire.MwebKernelExtraDataFeatureBit
+	}
+	return features
+}
+
+// isSane returns true when a present features byte agrees with the populated
+// fields in both directions, as LIP-0007 requires, and when a signed kernel
+// also carries its excess commitment and features byte.
 func (pk *PKernel) isSane() bool {
-	if pk.Signature != nil {
-		if pk.Features == nil || pk.ExcessCommitment == nil {
-			return false
-		}
+	if pk.Signature != nil && (pk.Features == nil || pk.ExcessCommitment == nil) {
+		return false
+	}
 
-		if *pk.Features&wire.MwebKernelFeeFeatureBit > 0 && pk.Fee == nil {
-			return false
-		}
+	if pk.Features != nil && *pk.Features != pk.featuresFromFields() {
+		return false
+	}
 
-		if *pk.Features&wire.MwebKernelPeginFeatureBit > 0 && pk.PeginAmount == nil {
-			return false
-		}
-
-		if *pk.Features&wire.MwebKernelPegoutFeatureBit > 0 && len(pk.PegOuts) == 0 {
-			return false
-		}
-
-		if *pk.Features&wire.MwebKernelHeightLockFeatureBit > 0 && pk.LockHeight == nil {
-			return false
-		}
-
-		if *pk.Features&wire.MwebKernelStealthExcessFeatureBit > 0 && pk.StealthExcess == nil {
-			return false
-		}
-
-		if *pk.Features&wire.MwebKernelExtraDataFeatureBit > 0 && len(pk.ExtraData) == 0 {
-			return false
-		}
+	if pk.LockHeight != nil && *pk.LockHeight < 0 {
+		return false
 	}
 
 	return true
@@ -68,6 +77,7 @@ func (pk *PKernel) isSane() bool {
 // deserialize attempts to deserialize the PKernel from the provided reader.
 func (pk *PKernel) deserialize(r io.Reader) error {
 	kernelKeys := newKeySet()
+	var pegouts map[uint64]*wire.TxOut
 	for {
 		kvPair, err := getKVPair(r)
 		if err != nil {
@@ -84,71 +94,85 @@ func (pk *PKernel) deserialize(r io.Reader) error {
 			return ErrDuplicateKey
 		}
 
+		if !kvPair.isKnownType() {
+			pk.Unknowns = append(pk.Unknowns, kvPair.asUnknown())
+			continue
+		}
+
 		switch KernelType(kvPair.keyType) {
 		case MwebKernelExcessCommitType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-
-			pk.ExcessCommitment = mw.ReadCommitment(kvPair.valueData)
-			if pk.ExcessCommitment == nil {
-				return ErrInvalidPsbtFormat
+			pk.ExcessCommitment, err = kvPair.commitmentValue()
+			if err != nil {
+				return err
 			}
 		case MwebKernelStealthCommitType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
+			if err != nil {
+				return err
 			}
 
-			pk.StealthExcess, err = mw.ReadPublicKey(kvPair.valueData)
+			pk.StealthExcess, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
 			}
 		case MwebKernelFeeType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 8 {
-				return ErrInvalidPsbtFormat
-			}
-
-			fee := ltcutil.Amount(binary.LittleEndian.Uint64(kvPair.valueData))
-			pk.Fee = &fee
-		case MwebKernelPeginAmountType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 8 {
-				return ErrInvalidPsbtFormat
-			}
-
-			peginAmount := ltcutil.Amount(binary.LittleEndian.Uint64(kvPair.valueData))
-			pk.PeginAmount = &peginAmount
-		case MwebKernelPegoutType:
-			pegout := new(wire.TxOut)
-			err := wire.ReadTxOut(bytes.NewReader(kvPair.valueData), 0, 0, pegout)
+			value, err := kvPair.fixedValue(8)
 			if err != nil {
 				return err
 			}
-			pk.PegOuts = append(pk.PegOuts, pegout)
-		case MwebKernelLockHeightType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 4 {
-				return ErrInvalidPsbtFormat
+
+			fee := ltcutil.Amount(binary.LittleEndian.Uint64(value))
+			pk.Fee = &fee
+		case MwebKernelPeginAmountType:
+			value, err := kvPair.fixedValue(8)
+			if err != nil {
+				return err
 			}
 
-			lockHeight := int32(binary.LittleEndian.Uint32(kvPair.valueData))
+			peginAmount := ltcutil.Amount(binary.LittleEndian.Uint64(value))
+			pk.PeginAmount = &peginAmount
+		case MwebKernelPegoutType:
+			// LIP-0007: the keydata is a compact-size index; map order
+			// is not authoritative for the pegout vector.
+			indexReader := bytes.NewReader(kvPair.keyData)
+			index, err := wire.ReadVarInt(indexReader, 0)
+			if err != nil || indexReader.Len() != 0 {
+				return ErrInvalidKeyData
+			}
+
+			pegout := new(wire.TxOut)
+			valueReader := bytes.NewReader(kvPair.valueData)
+			if err := wire.ReadTxOut(valueReader, 0, 0, pegout); err != nil {
+				return err
+			}
+			if valueReader.Len() != 0 || len(pegout.PkScript) == 0 {
+				return ErrInvalidPsbtFormat
+			}
+			if pegouts == nil {
+				pegouts = make(map[uint64]*wire.TxOut)
+			}
+			pegouts[index] = pegout
+		case MwebKernelLockHeightType:
+			value, err := kvPair.fixedValue(4)
+			if err != nil {
+				return err
+			}
+
+			// The signature-preimage VARINT is defined only for
+			// non-negative values; a negative height has no valid
+			// encoding.
+			lockHeight := int32(binary.LittleEndian.Uint32(value))
+			if lockHeight < 0 {
+				return ErrInvalidPsbtFormat
+			}
 			pk.LockHeight = &lockHeight
 		case MwebKernelFeaturesType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 1 {
-				return ErrInvalidPsbtFormat
+			value, err := kvPair.fixedValue(1)
+			if err != nil {
+				return err
 			}
 
-			features := wire.MwebKernelFeatureBit(kvPair.valueData[0])
+			features := wire.MwebKernelFeatureBit(value[0])
 			pk.Features = &features
 		case MwebKernelExtraDataType:
 			if kvPair.keyData != nil {
@@ -156,32 +180,45 @@ func (pk *PKernel) deserialize(r io.Reader) error {
 			}
 			pk.ExtraData = kvPair.valueData
 		case MwebKernelSignatureType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.Signature{}))
+			if err != nil {
+				return err
 			}
-			pk.Signature = mw.ReadSignature(kvPair.valueData)
+			pk.Signature = mw.ReadSignature(value)
 			if pk.Signature == nil {
 				return ErrInvalidPsbtFormat
 			}
 		default:
 			// A fall through case for any proprietary types.
-			keyCodeAndData := append(
-				[]byte{kvPair.keyType}, kvPair.keyData...,
-			)
-			newUnknown := &Unknown{
-				Key:   keyCodeAndData,
-				Value: kvPair.valueData,
-			}
+			pk.Unknowns = append(pk.Unknowns, kvPair.asUnknown())
+		}
+	}
 
-			pk.Unknowns = append(pk.Unknowns, newUnknown)
+	// LIP-0007: pegout indexes must be contiguous starting from zero.
+	if len(pegouts) > 0 {
+		pk.PegOuts = make([]*wire.TxOut, len(pegouts))
+		for index, pegout := range pegouts {
+			if index >= uint64(len(pegouts)) {
+				return ErrInvalidPsbtFormat
+			}
+			pk.PegOuts[index] = pegout
 		}
 	}
 
 	return nil
 }
 
-// serialize writes the PKernel to the provided writer in PSBT key-value format.
+// serialize writes the PKernel to the provided writer in PSBT key-value
+// format, in LIP-0007 kernel key order (features byte first).
 func (pk *PKernel) serialize(w io.Writer) error {
+	// Kernel Features
+	if pk.Features != nil {
+		err := serializeKVPairWithType(w, uint8(MwebKernelFeaturesType), nil, []byte{byte(*pk.Features)})
+		if err != nil {
+			return err
+		}
+	}
+
 	// Kernel Excess
 	if pk.ExcessCommitment != nil {
 		err := serializeKVPairWithType(w, uint8(MwebKernelExcessCommitType), nil, pk.ExcessCommitment[:])
@@ -249,14 +286,6 @@ func (pk *PKernel) serialize(w io.Writer) error {
 		err := serializeKVPairWithType(
 			w, uint8(MwebKernelLockHeightType), nil, binary.LittleEndian.AppendUint32(nil, uint32(*pk.LockHeight)),
 		)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Kernel Features
-	if pk.Features != nil {
-		err := serializeKVPairWithType(w, uint8(MwebKernelFeaturesType), nil, []byte{byte(*pk.Features)})
 		if err != nil {
 			return err
 		}

@@ -57,8 +57,35 @@ func (po *POutput) isMWEB() bool {
 	return po.StealthAddress != nil || po.OutputCommit != nil
 }
 
+// isFinalized reports whether an MWEB output carries the full LIP-0007
+// finalized set, so extraction cannot hit a nil field.
 func (po *POutput) isFinalized() bool {
-	return !po.isMWEB() || po.MwebSignature != nil
+	if !po.isMWEB() {
+		return true
+	}
+
+	if po.MwebSignature == nil || po.OutputCommit == nil ||
+		po.MwebFeatures == nil || po.SenderPubkey == nil ||
+		po.OutputPubkey == nil || po.RangeProof == nil {
+
+		return false
+	}
+
+	if *po.MwebFeatures&wire.MwebOutputMessageStandardFieldsFeatureBit > 0 &&
+		po.MwebStandardFields == nil {
+
+		return false
+	}
+
+	// The extra-data bit and field must agree: the message commits to
+	// extra data only when the bit is set.
+	if (len(po.MwebExtraData) > 0) !=
+		(*po.MwebFeatures&wire.MwebOutputMessageExtraDataFeatureBit > 0) {
+
+		return false
+	}
+
+	return true
 }
 
 func (po *POutput) isSane(psbtVersion uint32) bool {
@@ -78,30 +105,8 @@ func (po *POutput) isSane(psbtVersion uint32) bool {
 		}
 	}
 
-	if po.isMWEB() {
-		if po.StealthAddress == nil && po.OutputCommit == nil {
-			return false
-		}
-
-		if po.MwebSignature != nil {
-			if po.OutputCommit == nil ||
-				po.MwebFeatures == nil ||
-				po.SenderPubkey == nil ||
-				po.OutputPubkey == nil ||
-				po.RangeProof == nil {
-				return false
-			}
-
-			if (*po.MwebFeatures&wire.MwebOutputMessageStandardFieldsFeatureBit) > 0 && po.MwebStandardFields == nil {
-				return false
-			}
-
-			if (*po.MwebFeatures&wire.MwebOutputMessageExtraDataFeatureBit) > 0 && len(po.MwebExtraData) == 0 {
-				return false
-			}
-		}
-
-		return true
+	if po.isMWEB() && po.MwebSignature != nil && !po.isFinalized() {
+		return false
 	}
 
 	return true
@@ -151,6 +156,11 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 		// According to BIP-0174, <key> := <keylen><keytype><keydata> must be unique per map
 		if !outputKeys.addKey(kvPair.keyType, kvPair.keyData) {
 			return ErrDuplicateKey
+		}
+
+		if !kvPair.isKnownType() {
+			po.Unknowns = append(po.Unknowns, kvPair.asUnknown())
+			continue
 		}
 
 		// Check if kvPair.keyType is allowed for psbtVersion
@@ -262,36 +272,33 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 				return err
 			}
 		case MwebCommitOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			po.OutputCommit = mw.ReadCommitment(kvPair.valueData)
-			if po.OutputCommit == nil {
-				return ErrInvalidPsbtFormat
+			po.OutputCommit, err = kvPair.commitmentValue()
+			if err != nil {
+				return err
 			}
 		case MwebFeaturesOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 1 {
-				return ErrInvalidPsbtFormat
+			value, err := kvPair.fixedValue(1)
+			if err != nil {
+				return err
 			}
 
-			features := wire.MwebOutputMessageFeatureBit(kvPair.valueData[0])
+			features := wire.MwebOutputMessageFeatureBit(value[0])
 			po.MwebFeatures = &features
 		case MwebSenderPubKeyOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
+			if err != nil {
+				return err
 			}
-			po.SenderPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			po.SenderPubkey, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
 			}
 		case MwebOutputPubKeyOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
+			if err != nil {
+				return err
 			}
-			po.OutputPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			po.OutputPubkey, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
 			}
@@ -312,18 +319,20 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 			po.MwebStandardFields.EncryptedValue = binary.LittleEndian.Uint64(kvPair.valueData[34:42])
 			copy(po.MwebStandardFields.EncryptedNonce[:], kvPair.valueData[42:58])
 		case MwebRangeProofOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(secp256k1.RangeProof{}))
+			if err != nil {
+				return err
 			}
-			po.RangeProof = secp256k1.ReadRangeProof(kvPair.valueData)
+			po.RangeProof = secp256k1.ReadRangeProof(value)
 			if po.RangeProof == nil {
 				return ErrInvalidPsbtFormat
 			}
 		case MwebSignatureOutputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.Signature{}))
+			if err != nil {
+				return err
 			}
-			po.MwebSignature = mw.ReadSignature(kvPair.valueData)
+			po.MwebSignature = mw.ReadSignature(value)
 			if po.MwebSignature == nil {
 				return ErrInvalidPsbtFormat
 			}
@@ -334,15 +343,18 @@ func (po *POutput) deserialize(r io.Reader, psbtVersion uint32) error {
 			po.MwebExtraData = kvPair.valueData
 		default:
 			// A fall through case for any proprietary types.
-			keyCodeAndData := append(
-				[]byte{kvPair.keyType}, kvPair.keyData...,
-			)
-			newUnknown := &Unknown{
-				Key:   keyCodeAndData,
-				Value: kvPair.valueData,
-			}
+			po.Unknowns = append(po.Unknowns, kvPair.asUnknown())
+		}
+	}
 
-			po.Unknowns = append(po.Unknowns, newUnknown)
+	// BIP-0370 requires an amount and a script on every v2 output; MWEB
+	// outputs are exempt from the script requirement but not the amount.
+	if psbtVersion >= 2 {
+		if !outputKeys.hasType(uint64(AmountOutputType)) {
+			return ErrInvalidPsbtFormat
+		}
+		if !po.isMWEB() && !outputKeys.hasType(uint64(PKScriptOutputType)) {
+			return ErrInvalidPsbtFormat
 		}
 	}
 
@@ -393,6 +405,16 @@ func (po *POutput) serialize(w io.Writer, psbtVersion uint32) error {
 
 		if po.PKScript != nil {
 			if err := serializeKVPairWithType(w, uint8(PKScriptOutputType), nil, po.PKScript); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Proprietary output keys are emitted here, ahead of the MWEB fields;
+	// plain unknowns follow the map.
+	for _, kv := range po.Unknowns {
+		if len(kv.Key) > 0 && kv.Key[0] == ProprietaryGlobalType {
+			if err := serializeKVpair(w, kv.Key, kv.Value); err != nil {
 				return err
 			}
 		}
@@ -515,6 +537,9 @@ func (po *POutput) serialize(w io.Writer, psbtVersion uint32) error {
 
 	// Unknown is a special case; we don't have a key type, only a key and a value field
 	for _, kv := range po.Unknowns {
+		if len(kv.Key) > 0 && kv.Key[0] == ProprietaryGlobalType {
+			continue // already emitted after the amount/script
+		}
 		err := serializeKVpair(w, kv.Key, kv.Value)
 		if err != nil {
 			return err

@@ -12,6 +12,8 @@ import (
 	"io"
 	"sort"
 
+	ec "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
 )
@@ -224,65 +226,153 @@ func serializeKVPairWithType(w io.Writer, kt uint8, keydata []byte,
 	return serializeKVpair(w, serializedKey, value)
 }
 
-// getKey retrieves a single key - both the key type and the keydata (if
-// present) from the stream and returns the key type as an integer, or -1 if
-// the key was of zero length. This integer is used to indicate the presence
-// of a separator byte which indicates the end of a given key-value pair list,
-// and the keydata as a byte slice or nil if none is present.
-func getKey(r io.Reader) (int, []byte, error) {
+// getKey reads one key from the stream: its full compact-size type and any
+// keydata. ok is false when the 0x00 separator ends the key-value pair list.
+func getKey(r io.Reader) (keyType uint64, keyData []byte, ok bool, err error) {
 
 	// For the key, we read the varint separately, instead of using the
 	// available ReadVarBytes, because we have a specific treatment of 0x00
 	// here:
 	count, err := wire.ReadVarInt(r, 0)
 	if err != nil {
-		return -1, nil, ErrInvalidPsbtFormat
+		return 0, nil, false, ErrInvalidPsbtFormat
 	}
 	if count == 0 {
 		// A separator indicates end of key-value pair list.
-		return -1, nil, nil
+		return 0, nil, false, nil
 	}
 
 	// Check that we don't attempt to decode a dangerously large key.
 	if count > MaxPsbtKeyLength {
-		return -1, nil, ErrInvalidKeyData
+		return 0, nil, false, ErrInvalidKeyData
 	}
 
 	// Next, we ready out the designated number of bytes, which may include
 	// a type, key, and optional data.
 	keyTypeAndData := make([]byte, count)
 	if _, err := io.ReadFull(r, keyTypeAndData[:]); err != nil {
-		return -1, nil, err
+		return 0, nil, false, err
 	}
 	keyReader := bytes.NewReader(keyTypeAndData[:])
 
 	// BIP-0174 specifies that the key shall begin with a varint indicating the type.
 	// The remaining bytes, if any, are the key data.
-	varKeyType, err := wire.ReadVarInt(keyReader, 0)
+	keyType, err = wire.ReadVarInt(keyReader, 0)
 	if err != nil {
-		return -1, nil, ErrInvalidPsbtFormat
+		return 0, nil, false, ErrInvalidPsbtFormat
 	}
-	keyType := int(varKeyType)
 
 	// Note that the second return value will usually be empty, since most
 	// keys contain no more than the key type byte.
 	if keyReader.Len() == 0 {
-		return keyType, nil, nil
+		return keyType, nil, true, nil
 	}
 
 	// Otherwise, we return the key, along with any data that it may contain.
-	keyData := make([]byte, keyReader.Len())
+	keyData = make([]byte, keyReader.Len())
 	if _, err := keyReader.Read(keyData); err != nil {
-		return -1, nil, err
+		return 0, nil, false, err
 	}
 
-	return keyType, keyData, nil
+	return keyType, keyData, true, nil
 }
 
 type keyValuePair struct {
-	keyType   uint8
+	// keyType holds the full compact-size key type. Types above 0xff are
+	// never known to this package and must be preserved as unknowns.
+	keyType   uint64
 	keyData   []byte
 	valueData []byte
+}
+
+// isKnownType reports whether the pair's type can be one of this package's
+// single-byte key types.
+func (kv *keyValuePair) isKnownType() bool {
+	return kv.keyType <= 0xff
+}
+
+// unknownKey rebuilds the original serialized key (compact-size type ||
+// keydata) so unknown keys round-trip byte-exact.
+func (kv *keyValuePair) unknownKey() []byte {
+	var buf bytes.Buffer
+	_ = wire.WriteVarInt(&buf, 0, kv.keyType)
+	buf.Write(kv.keyData)
+	return buf.Bytes()
+}
+
+// asUnknown converts the pair into an Unknown carrying the original key bytes.
+func (kv *keyValuePair) asUnknown() *Unknown {
+	return &Unknown{Key: kv.unknownKey(), Value: kv.valueData}
+}
+
+// fixedValue returns the pair's value after checking that no keydata is
+// present and the value is exactly n bytes. The mw.Read* parsers accept
+// over-length input and silently truncate, so this guard is load-bearing.
+func (kv *keyValuePair) fixedValue(n int) ([]byte, error) {
+	if kv.keyData != nil {
+		return nil, ErrInvalidKeyData
+	}
+	if len(kv.valueData) != n {
+		return nil, ErrInvalidPsbtFormat
+	}
+	return kv.valueData, nil
+}
+
+// mapCountValue parses a map-count value: exactly one bounded compact-size
+// integer with no keydata and no trailing bytes.
+func (kv *keyValuePair) mapCountValue() (uint64, error) {
+	if kv.keyData != nil || kv.valueData == nil {
+		return 0, ErrInvalidPsbtFormat
+	}
+	reader := bytes.NewReader(kv.valueData)
+	value, err := wire.ReadVarInt(reader, 0)
+	if err != nil {
+		return 0, err
+	}
+	if reader.Len() != 0 || value > maxPsbtMapCount {
+		return 0, ErrInvalidPsbtFormat
+	}
+	return value, nil
+}
+
+// commitmentValue parses a 33-byte Pedersen commitment, requiring the 0x08 or
+// 0x09 commitment prefix and a valid curve point (mw.ReadCommitment accepts
+// any bytes, and mw.Commitment.PubKey panics on an invalid X).
+func (kv *keyValuePair) commitmentValue() (*mw.Commitment, error) {
+	value, err := kv.fixedValue(len(mw.Commitment{}))
+	if err != nil {
+		return nil, err
+	}
+	if value[0] != 0x08 && value[0] != 0x09 {
+		return nil, ErrInvalidPsbtFormat
+	}
+
+	point := make([]byte, len(value))
+	copy(point, value)
+	point[0] = 0x02 | (value[0] & 1)
+	if _, err := ec.ParsePubKey(point); err != nil {
+		return nil, ErrInvalidPsbtFormat
+	}
+
+	commit := mw.ReadCommitment(value)
+	if commit == nil {
+		return nil, ErrInvalidPsbtFormat
+	}
+	return commit, nil
+}
+
+// isMwebDescriptor reports whether value is a printable-ASCII mweb(...)
+// output descriptor, per the LIP-0007 mweb(...) descriptor format.
+func isMwebDescriptor(value []byte) bool {
+	if !bytes.HasPrefix(value, []byte("mweb(")) {
+		return false
+	}
+	for _, b := range value {
+		if b < 0x20 || b > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // Returns a keyValuePair, defined by BIP-0174 as <keypair>.
@@ -291,11 +381,11 @@ type keyValuePair struct {
 // <key> := <keylen> <keytype> <keydata>
 // <value> := <valuelen> <valuedata>
 func getKVPair(r io.Reader) (*keyValuePair, error) {
-	keyType, keyData, err := getKey(r)
+	keyType, keyData, ok, err := getKey(r)
 	if err != nil {
 		return nil, err
 	}
-	if keyType == -1 {
+	if !ok {
 		return nil, nil
 	}
 
@@ -307,7 +397,7 @@ func getKVPair(r io.Reader) (*keyValuePair, error) {
 	}
 
 	return &keyValuePair{
-		keyType:   uint8(keyType),
+		keyType:   keyType,
 		keyData:   keyData,
 		valueData: value,
 	}, nil
@@ -335,6 +425,13 @@ func readTxOut(txout []byte) (*wire.TxOut, error) {
 // UTXO fields of the PSBT. An error is returned if an input is specified that
 // does not contain any UTXO information.
 func SumUtxoInputValues(packet *Packet) (int64, error) {
+	return sumInputValues(packet, true)
+}
+
+// sumInputValues sums the input values; MWEB inputs (whose explicit amounts
+// balance through their kernels rather than the canonical ledger) count only
+// when includeMweb is set.
+func sumInputValues(packet *Packet, includeMweb bool) (int64, error) {
 	// We take the TX ins of the unsigned TX as the truth for how many
 	// inputs there should be, as the fields in the extra data part of the
 	// PSBT can be empty.
@@ -343,38 +440,54 @@ func SumUtxoInputValues(packet *Packet) (int64, error) {
 			"input length")
 	}
 
-	inputSum := int64(0)
+	inputSum := uint64(0)
 	for idx, in := range packet.Inputs {
 		switch {
+		case in.isMWEB():
+			// An MWEB input without its explicit amount cannot be
+			// analyzed, whether or not it is being summed.
+			if in.MwebAmount == nil {
+				return 0, fmt.Errorf("input %d has no "+
+					"UTXO information", idx)
+			}
+			if includeMweb {
+				if err := addAmount(&inputSum, int64(*in.MwebAmount)); err != nil {
+					return 0, err
+				}
+			}
+
 		case in.WitnessUtxo != nil:
 			// Witness UTXOs only need to reference the TxOut.
-			inputSum += in.WitnessUtxo.Value
+			if err := addAmount(&inputSum, in.WitnessUtxo.Value); err != nil {
+				return 0, err
+			}
 
 		case in.NonWitnessUtxo != nil:
 			// Non-witness UTXOs reference to the whole transaction
 			// the UTXO resides in.
 			utxOuts := in.NonWitnessUtxo.TxOut
-			txIn := packet.UnsignedTx.TxIn[idx]
+			prevOut, err := packet.prevOutpoint(idx)
+			if err != nil {
+				return 0, err
+			}
 
 			// Check that utxOuts actually has enough space to
 			// contain the previous outpoint's index.
-			opIdx := txIn.PreviousOutPoint.Index
-			if opIdx >= uint32(len(utxOuts)) {
+			if prevOut.Index >= uint32(len(utxOuts)) {
 				return 0, fmt.Errorf("input %d has malformed "+
 					"TxOut field", idx)
 			}
 
-			inputSum += utxOuts[txIn.PreviousOutPoint.Index].Value
-
-		case in.MwebAmount != nil:
-			inputSum += int64(*in.MwebAmount)
+			if err := addAmount(&inputSum, utxOuts[prevOut.Index].Value); err != nil {
+				return 0, err
+			}
 
 		default:
 			return 0, fmt.Errorf("input %d has no UTXO information",
 				idx)
 		}
 	}
-	return inputSum, nil
+	return int64(inputSum), nil
 }
 
 // TxOutsEqual returns true if two transaction outputs are equal.
@@ -522,22 +635,41 @@ func intPtr(v int) *int {
 }
 
 type keySet struct {
-	seen map[string]struct{}
+	seen  map[string]struct{}
+	types map[uint64]struct{}
 }
 
 func newKeySet() *keySet {
 	return &keySet{
-		seen: make(map[string]struct{}),
+		seen:  make(map[string]struct{}),
+		types: make(map[uint64]struct{}),
 	}
 }
 
-func (ks *keySet) addKey(keyType uint8, keyData []byte) bool {
-	fullKey := append([]byte{keyType}, keyData...) // reconstruct original key
-	keyStr := string(fullKey)
+func (ks *keySet) addKey(keyType uint64, keyData []byte) bool {
+	// The dedup key is the canonical compact-size type encoding plus the
+	// keydata; the one-byte fast path stops at 0xfd where the encodings
+	// of different types could otherwise collide.
+	var keyStr string
+	if keyType < 0xfd {
+		keyStr = string(append([]byte{byte(keyType)}, keyData...))
+	} else {
+		var fullKey bytes.Buffer
+		_ = wire.WriteVarInt(&fullKey, 0, keyType)
+		fullKey.Write(keyData)
+		keyStr = fullKey.String()
+	}
 
 	if _, exists := ks.seen[keyStr]; exists {
 		return false
 	}
 	ks.seen[keyStr] = struct{}{}
+	ks.types[keyType] = struct{}{}
 	return true
+}
+
+// hasType reports whether any key of the given type was added.
+func (ks *keySet) hasType(keyType uint64) bool {
+	_, exists := ks.types[keyType]
+	return exists
 }

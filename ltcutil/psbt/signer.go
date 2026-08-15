@@ -11,7 +11,6 @@ package psbt
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"math/big"
@@ -56,6 +55,12 @@ const (
 // insertion (and then finalization) can take place.
 func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 	redeemScript []byte, witnessScript []byte) (SignOutcome, error) {
+
+	// LIP-0007: canonical signatures commit to the peg-in scripts, so they
+	// must be produced after the MWEB components are finalized.
+	if !mwebComponentsFinal(u.Upsbt) {
+		return SignInvalid, ErrMwebComponentsNotSigned
+	}
 
 	pInput := u.Upsbt.Inputs[inIndex]
 	if pInput.isFinalized() {
@@ -126,9 +131,17 @@ func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 	// output.
 	default:
 		if pInput.WitnessUtxo == nil {
-			txIn := u.Upsbt.UnsignedTx.TxIn[inIndex]
-			outIndex := txIn.PreviousOutPoint.Index
-			script := pInput.NonWitnessUtxo.TxOut[outIndex].PkScript
+			if pInput.NonWitnessUtxo == nil {
+				return SignInvalid, ErrInvalidPsbtFormat
+			}
+			prevOut, err := u.Upsbt.prevOutpoint(inIndex)
+			if err != nil {
+				return SignInvalid, err
+			}
+			if prevOut.Index >= uint32(len(pInput.NonWitnessUtxo.TxOut)) {
+				return SignInvalid, ErrInvalidPrevOutNonWitnessTransaction
+			}
+			script := pInput.NonWitnessUtxo.TxOut[prevOut.Index].PkScript
 
 			if txscript.IsWitnessProgram(script) {
 				err := nonWitnessToWitness(u.Upsbt, inIndex)
@@ -152,8 +165,17 @@ func (u *Updater) Sign(inIndex int, sig []byte, pubKey []byte,
 // NonWitnessUtxo field with a WitnessUtxo field. See
 // https://github.com/bitcoin/bitcoin/pull/14197.
 func nonWitnessToWitness(p *Packet, inIndex int) error {
-	outIndex := p.UnsignedTx.TxIn[inIndex].PreviousOutPoint.Index
-	txout := p.Inputs[inIndex].NonWitnessUtxo.TxOut[outIndex]
+	if p.Inputs[inIndex].NonWitnessUtxo == nil {
+		return ErrInvalidPsbtFormat
+	}
+	prevOut, err := p.prevOutpoint(inIndex)
+	if err != nil {
+		return err
+	}
+	if prevOut.Index >= uint32(len(p.Inputs[inIndex].NonWitnessUtxo.TxOut)) {
+		return ErrInvalidPrevOutNonWitnessTransaction
+	}
+	txout := p.Inputs[inIndex].NonWitnessUtxo.TxOut[prevOut.Index]
 
 	// TODO(guggero): For segwit v1, we'll want to remove the NonWitnessUtxo
 	// from the packet. For segwit v0 it is unsafe to only rely on the
@@ -176,13 +198,15 @@ type MwebInputSignatureData struct {
 	stealthOffsetTweak mw.SecretKey
 	// Ephemeral input public key (K_i), or nil if MwebInputStealthKeyFeatureBit was not set
 	inputPubKey *mw.PublicKey
+	// Spent output pubkey (K_o) derived from the spend key
+	outputPubKey *mw.PublicKey
 }
 
 type IMwebInputSigner interface {
 	SignMwebInput(
 		features wire.MwebInputFeatureBit,
 		spentOutputId chainhash.Hash,
-		spentOutputPk mw.PublicKey,
+		spentOutputPk *mw.PublicKey,
 		amount uint64,
 		extraData []byte,
 		keyExchangePubKey *mw.PublicKey,
@@ -207,6 +231,27 @@ func NewSigner(p *Packet, mwebInputSigner IMwebInputSigner) (*Signer, error) {
 
 func (s *Signer) SignMwebComponents() (SignOutcome, error) {
 	p := s.psbt
+
+	// Signing rewrites the peg-in scripts, so canonical signatures made
+	// before this step would be invalidated.
+	for i := range p.Inputs {
+		if hasCanonicalSigData(&p.Inputs[i]) {
+			return SignInvalid, errors.New(
+				"canonical signatures present before mweb signing")
+		}
+	}
+
+	// The LIP-0007 Signer role completes a kernel-less packet by adding and
+	// signing a blank kernel.
+	if p.HasMwebComponents() && len(p.Kernels) == 0 {
+		p.Kernels = append(p.Kernels, PKernel{})
+	}
+	if err := checkMwebBalance(p, true); err != nil {
+		return SignInvalid, err
+	}
+	if err := validatePeginOutputs(p, false); err != nil {
+		return SignInvalid, err
+	}
 
 	var kernelOffset mw.BlindingFactor
 	if p.MwebTxOffset != nil {
@@ -273,27 +318,87 @@ func (s *Signer) SignMwebComponents() (SignOutcome, error) {
 		}
 	}
 
+	if err := s.finalizePeginScripts(); err != nil {
+		return SignInvalid, err
+	}
+
+	// The signer skips components that were already finalized, so success
+	// must mean the WHOLE MWEB side verifies: every signature and proof
+	// (including pre-finalized ones) and both balance equations.
+	if p.HasMwebComponents() {
+		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil {
+			return SignInvalid, errors.New("mweb offsets missing after signing")
+		}
+		if _, err := verifyMwebComponents(p); err != nil {
+			return SignInvalid, err
+		}
+	}
+
+	// The packet is no longer modifiable once the MWEB components commit
+	// to every input and output. Per BIP-0370 PSBT_GLOBAL_TX_MODIFIABLE,
+	// the bits are cleared only when the key already exists.
+	if p.TxModifiableFlag != nil {
+		modifiable := TxModifiableFlag(0)
+		p.TxModifiableFlag = &modifiable
+	}
+
 	return SignSuccesful, nil
 }
 
+// finalizePeginScripts rewrites each peg-in placeholder script to commit to
+// its kernel's ID, then re-validates the full pairing over the new scripts.
+func (s *Signer) finalizePeginScripts() error {
+	p := s.psbt
+
+	outputs, kernels := peginPairs(p)
+	pairs := len(outputs)
+	if len(kernels) < pairs {
+		pairs = len(kernels)
+	}
+	for i := 0; i < pairs; i++ {
+		if !isPeginPlaceholder(outputs[i].PKScript) {
+			continue
+		}
+		kernel, err := extractKernel(kernels[i])
+		if err != nil {
+			return err
+		}
+		outputs[i].PKScript = peginScript(kernel.Hash())
+	}
+
+	return validatePeginOutputs(p, true)
+}
+
 func (s *Signer) signMwebInput(input *PInput) (*MwebInputSignatureData, error) {
+	if input.MwebInputSig != nil {
+		return nil, errors.New("input is already signed")
+	}
 	if input.MwebAmount == nil {
 		return nil, errors.New("input amount missing")
-	} else if input.MwebOutputPubkey == nil {
-		return nil, errors.New("spent output pubkey missing")
 	} else if input.MwebSharedSecret == nil && input.MwebKeyExchangePubkey == nil {
 		return nil, errors.New("input shared secret missing")
 	}
 
+	// Features follow the LIP-0007 input rules: default to the stealth key,
+	// silently pick up the extra-data bit when data is present, and error
+	// only on a declared bit with no data.
 	if input.MwebFeatures == nil {
 		defaultFeatures := wire.MwebInputStealthKeyFeatureBit
 		input.MwebFeatures = &defaultFeatures
+	}
+	if len(input.MwebExtraData) > 0 {
+		*input.MwebFeatures |= wire.MwebInputExtraDataFeatureBit
+	}
+	if *input.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0 &&
+		len(input.MwebExtraData) == 0 {
+
+		return nil, errors.New("input extra data feature flag and field mismatch")
 	}
 
 	sigData, err := s.mwebInputSigner.SignMwebInput(
 		*input.MwebFeatures,
 		*input.MwebOutputId,
-		*input.MwebOutputPubkey,
+		input.MwebOutputPubkey,
 		uint64(*input.MwebAmount),
 		input.MwebExtraData,
 		input.MwebKeyExchangePubkey,
@@ -303,25 +408,44 @@ func (s *Signer) signMwebInput(input *PInput) (*MwebInputSignatureData, error) {
 		return nil, err
 	}
 
+	commit := mw.NewCommitment(&sigData.inputBlind, uint64(*input.MwebAmount))
+	if input.MwebCommit != nil && *input.MwebCommit != *commit {
+		return nil, errors.New("input commitment does not match derived keys")
+	}
+
 	input.MwebInputPubkey = sigData.inputPubKey
-	input.MwebCommit = mw.NewCommitment(&sigData.inputBlind, uint64(*input.MwebAmount))
+	// Backfill the spent output pubkey from the derived spend key when the
+	// field is absent.
+	if input.MwebOutputPubkey == nil {
+		input.MwebOutputPubkey = sigData.outputPubKey
+	}
+	input.MwebCommit = commit
 	input.MwebInputSig = &sigData.sig
 	return sigData, nil
 }
 
 func signMwebOutput(output *POutput) (*mw.BlindingFactor, *mw.SecretKey, error) {
+	if output.MwebSignature != nil {
+		return nil, nil, errors.New("output is already signed")
+	}
 	if output.StealthAddress == nil {
 		return nil, nil, errors.New("output address missing")
 	}
 
-	if output.MwebFeatures != nil && (*output.MwebFeatures)&wire.MwebOutputMessageStandardFieldsFeatureBit == 0 {
-		return nil, nil, errors.New("only standard outputs supported")
-	}
+	// Per LIP-0007 output features, a declared extra-data bit with no data
+	// is an error; otherwise the features byte is rewritten to the standard
+	// form the signer produces.
+	if output.MwebFeatures != nil &&
+		*output.MwebFeatures&wire.MwebOutputMessageExtraDataFeatureBit > 0 &&
+		len(output.MwebExtraData) == 0 {
 
-	if output.MwebFeatures == nil {
-		defaultFeatures := wire.MwebOutputMessageStandardFieldsFeatureBit
-		output.MwebFeatures = &defaultFeatures
+		return nil, nil, errors.New("output extra data feature flag and field mismatch")
 	}
+	features := wire.MwebOutputMessageStandardFieldsFeatureBit
+	if len(output.MwebExtraData) > 0 {
+		features |= wire.MwebOutputMessageExtraDataFeatureBit
+	}
+	output.MwebFeatures = &features
 
 	amount := uint64(output.Amount)
 	address := *output.StealthAddress
@@ -340,14 +464,14 @@ func signMwebOutput(output *POutput) (*mw.BlindingFactor, *mw.SecretKey, error) 
 	_, _ = h.Write(address.B()[:])
 	_ = binary.Write(h, binary.LittleEndian, amount)
 	_, _ = h.Write(n.FillBytes(make([]byte, 16)))
-	s := (*mw.SecretKey)(h.Sum(nil))
+	s := hashToScalar(h.Sum(nil))
 
 	// Derive shared secret 't' = H(T_derive, s*A)
 	sA := address.A().Mul(s)
-	t := (*mw.SecretKey)(mw.Hashed(mw.HashTagDerive, sA[:]))
+	t := hashToScalar(mw.Hashed(mw.HashTagDerive, sA[:])[:])
 
 	// Construct one-time public key for receiver 'Ko' = H(T_outkey, t)*B
-	Ko := address.B().Mul((*mw.SecretKey)(mw.Hashed(mw.HashTagOutKey, t[:])))
+	Ko := address.B().Mul(hashToScalar(mw.Hashed(mw.HashTagOutKey, t[:])[:]))
 
 	// Key exchange public key 'Ke' = s*B
 	Ke := address.B().Mul(s)
@@ -412,37 +536,11 @@ func signMwebOutput(output *POutput) (*mw.BlindingFactor, *mw.SecretKey, error) 
 }
 
 func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
-	// Populate features if missing already
-	if pk.Features == nil {
-		features := wire.MwebKernelStealthExcessFeatureBit
-		if pk.Fee != nil {
-			features |= wire.MwebKernelFeeFeatureBit
-		}
-		if pk.PeginAmount != nil && *pk.PeginAmount > 0 {
-			features |= wire.MwebKernelPeginFeatureBit
-		}
-		if len(pk.PegOuts) > 0 {
-			features |= wire.MwebKernelPegoutFeatureBit
-		}
-		if pk.LockHeight != nil && *pk.LockHeight > 0 {
-			features |= wire.MwebKernelHeightLockFeatureBit
-		}
-		pk.Features = &features
-	}
-
-	// Verify features match PKernel fields
-	if (pk.Fee != nil) != (*pk.Features&wire.MwebKernelFeeFeatureBit > 0) {
-		return nil, nil, errors.New("kernel fee feature flag and field mismatch")
-	}
-	if (pk.PeginAmount != nil) != (*pk.Features&wire.MwebKernelPeginFeatureBit > 0) {
-		return nil, nil, errors.New("kernel pegin feature flag and field mismatch")
-	}
-	if (len(pk.PegOuts) > 0) != (*pk.Features&wire.MwebKernelPegoutFeatureBit > 0) {
-		return nil, nil, errors.New("kernel pegout feature flag and field mismatch")
-	}
-	if (pk.LockHeight != nil) != (*pk.Features&wire.MwebKernelHeightLockFeatureBit > 0) {
-		return nil, nil, errors.New("kernel height lock feature flag and field mismatch")
-	}
+	// The LIP-0007 Signer always produces a stealth kernel and derives
+	// the features byte from the populated fields, overriding whatever
+	// the map carried.
+	features := pk.featuresFromFields() | wire.MwebKernelStealthExcessFeatureBit
+	pk.Features = &features
 
 	sigKey, err := mw.NewSecretKey()
 	if err != nil {
@@ -471,10 +569,7 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 		}
 		stealthExcess = *(stealthKey).PubKey()
 
-		h := blake3.New(32, nil)
-		_, _ = h.Write(kernelExcess.PubKey()[:])
-		_, _ = h.Write(stealthExcess[:])
-		sigKey = sigKey.Mul((*mw.SecretKey)(h.Sum(nil))).
+		sigKey = sigKey.Mul(keyAggScalar(kernelExcess.PubKey(), &stealthExcess)).
 			Add(stealthKey)
 	}
 
@@ -485,6 +580,7 @@ func signMwebKernel(pk *PKernel) (*mw.BlindingFactor, *mw.SecretKey, error) {
 		Pegouts:       pk.PegOuts,
 		LockHeight:    lockHeight,
 		StealthExcess: stealthExcess,
+		ExtraData:     pk.ExtraData,
 		Excess:        kernelExcess,
 	}
 
@@ -504,48 +600,44 @@ type BasicMwebInputSigner struct {
 	DeriveOutputKeys OutputKeyDerivationFunc
 }
 
-func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
+func (s BasicMwebInputSigner) SignMwebInput(features wire.MwebInputFeatureBit, spentOutputId chainhash.Hash, spentOutputPk *mw.PublicKey, amount uint64, extraData []byte, keyExchangePubKey *mw.PublicKey, spentOutputSharedSecret *mw.SecretKey) (*MwebInputSignatureData, error) {
 	if features&wire.MwebInputStealthKeyFeatureBit == 0 {
 		return nil, errors.New("stealth key feature bit is required to ensure key safety")
 	}
 
-	preBlind, outputSpendKey, err := s.DeriveOutputKeys(&spentOutputPk, keyExchangePubKey, spentOutputSharedSecret)
+	preBlind, outputSpendKey, err := s.DeriveOutputKeys(spentOutputPk, keyExchangePubKey, spentOutputSharedSecret)
 	if err != nil {
 		return nil, err
 	}
 
+	// The spent output pubkey is the derived spend key's point; a recorded
+	// field must agree with it.
+	outputPubKey := outputSpendKey.PubKey()
+	if spentOutputPk != nil && *spentOutputPk != *outputPubKey {
+		return nil, errors.New("derived keys do not match spent output pubkey")
+	}
+
 	blind := mw.BlindSwitch(preBlind, amount)
 
-	var ephemeralKey mw.SecretKey
-	if _, err = rand.Read(ephemeralKey[:]); err != nil {
+	// NewSecretKey rejection-samples, so the scalar is always valid.
+	ephemeralKey, err := mw.NewSecretKey()
+	if err != nil {
 		return nil, err
 	}
 
 	inputPubKey := ephemeralKey.PubKey()
 
-	// Hash keys (K_i||K_o)
-	h := blake3.New(32, nil)
-	_, _ = h.Write(inputPubKey[:])
-	_, _ = h.Write(spentOutputPk[:])
-	keyHash := (*mw.SecretKey)(h.Sum(nil))
-
 	// Calculate aggregated key k_agg = k_i + HASH(K_i||K_o) * k_o
-	sigKey := outputSpendKey.Mul(keyHash).Add(&ephemeralKey)
+	sigKey := outputSpendKey.Mul(keyAggScalar(inputPubKey, outputPubKey)).
+		Add(ephemeralKey)
 
-	// Hash message
-	h = blake3.New(32, nil)
-	_ = binary.Write(h, binary.LittleEndian, features)
-	_, _ = h.Write(spentOutputId[:])
-
-	if features&wire.MwebInputExtraDataFeatureBit > 0 {
-		_ = wire.WriteVarBytes(h, 0, extraData)
-	}
-	msgHash := h.Sum(nil)
+	msgHash := mwebInputMessageHash(features, &spentOutputId, extraData)
 
 	return &MwebInputSignatureData{
 		sig:                mw.Sign(sigKey, msgHash),
 		inputBlind:         *blind,
 		stealthOffsetTweak: *ephemeralKey.Sub(outputSpendKey),
 		inputPubKey:        inputPubKey,
+		outputPubKey:       outputPubKey,
 	}, nil
 }

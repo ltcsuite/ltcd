@@ -29,6 +29,12 @@ func InPlaceSort(packet *Packet) error {
 		return err
 	}
 
+	// BIP-69 sorting would misorder MWEB maps and break peg-in/kernel pairing,
+	// so MWEB packets keep their own ordering, applied at extraction.
+	if packet.HasMwebComponents() {
+		return ErrMwebSortUnsupported
+	}
+
 	sort.Sort(&sortableInputs{p: packet})
 	sort.Sort(&sortableOutputs{p: packet})
 
@@ -74,20 +80,16 @@ func (s *sortableOutputs) Swap(i, j int) {
 }
 
 // Less is the input comparison function. First sort based on input hash
-// (reversed / rpc-style), then index.
-// MWEB inputs will be moved after non-MWEB inputs, and will be sorted by spent output id.
+// (reversed / rpc-style), then index. Only canonical inputs reach here since
+// InPlaceSort refuses MWEB packets.
 func (s *sortableInputs) Less(i, j int) bool {
-	iPrevOut, iMwebSpentOutputId := s.p.getPrevOut(i)
-	jPrevOut, jMwebSpentOutputId := s.p.getPrevOut(j)
+	iPrevOut, _ := s.p.getPrevOut(i)
+	jPrevOut, _ := s.p.getPrevOut(j)
 
-	// getPrevOut returns nil for MWEB inputs. Make sure those after non-MWEB inputs.
-	if iPrevOut == nil && jPrevOut == nil {
-		// Both are MWEB inputs. Sort by MWEB spent output ID
-		return bytes.Compare(iMwebSpentOutputId[:], jMwebSpentOutputId[:]) == -1
-	} else if iPrevOut != nil && jPrevOut == nil {
-		return true
-	} else if iPrevOut == nil {
-		return false
+	// A malformed input with no prevout sorts as equal-or-after rather than
+	// panicking, keeping a strict weak ordering.
+	if iPrevOut == nil || jPrevOut == nil {
+		return iPrevOut != nil
 	}
 
 	// If hashes are the same, compare prevout indices
@@ -111,26 +113,12 @@ func (s *sortableInputs) Less(i, j int) bool {
 // first), then PkScript.
 func (s *sortableOutputs) Less(i, j int) bool {
 	if s.p.UnsignedTx == nil {
-		iOutput := s.p.Outputs[i]
-		jOutput := s.p.Outputs[j]
-
-		if iOutput.Amount == jOutput.Amount {
-			if !iOutput.isMWEB() && !jOutput.isMWEB() {
-				return bytes.Compare(iOutput.PKScript, jOutput.PKScript) < 0
-			} else if iOutput.isMWEB() != jOutput.isMWEB() {
-				return jOutput.isMWEB()
-			}
-
-			// Both are MWEB. Sort by commitment.
-			if jOutput.OutputCommit == nil {
-				return true
-			} else if iOutput.OutputCommit == nil {
-				return false
-			}
-
-			return bytes.Compare(iOutput.OutputCommit[:], jOutput.OutputCommit[:]) < 0
+		// v2 canonical outputs; InPlaceSort refuses MWEB packets.
+		oi, oj := &s.p.Outputs[i], &s.p.Outputs[j]
+		if oi.Amount == oj.Amount {
+			return bytes.Compare(oi.PKScript, oj.PKScript) < 0
 		}
-		return iOutput.Amount < jOutput.Amount
+		return oi.Amount < oj.Amount
 	}
 
 	outs := s.p.UnsignedTx.TxOut

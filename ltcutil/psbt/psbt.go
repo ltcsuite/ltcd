@@ -42,6 +42,10 @@ const MaxPsbtValueLength = 4000000
 // deserialize from the wire. Anything more will return ErrInvalidKeyData.
 const MaxPsbtKeyLength = 10000
 
+// maxPsbtMapCount bounds the declared input, output, and kernel map counts of
+// a v2 packet before their maps are allocated and parsed.
+const maxPsbtMapCount = 100000
+
 var (
 
 	// ErrInvalidPsbtFormat is a generic error for any situation in which a
@@ -110,6 +114,23 @@ var (
 	ErrUnsupportedScriptType = errors.New("Unsupported script type")
 
 	ErrUnsupportedFieldInPsbtVersion = errors.New("Unsupported field for specified psbt version")
+
+	// ErrMwebComponentsNotSigned indicates that canonical signature data
+	// cannot be produced or finalized yet because the packet's MWEB
+	// components have not been signed; sign them first.
+	ErrMwebComponentsNotSigned = errors.New("mweb components must be " +
+		"signed before canonical inputs")
+
+	// ErrMwebAmountsUnbalanced indicates that the packet's explicit MWEB
+	// amounts do not satisfy inputs + pegins == outputs + pegouts + fees.
+	ErrMwebAmountsUnbalanced = errors.New("mweb amounts do not balance")
+
+	// ErrMwebSortUnsupported indicates that BIP-69 sorting was requested for
+	// a packet carrying MWEB components. Amount ordering would break the
+	// canonical-before-MWEB map order and the positional peg-in/kernel
+	// pairing, so MWEB packets keep their MWEB-defined ordering instead.
+	ErrMwebSortUnsupported = errors.New("cannot BIP-69 sort a packet with " +
+		"mweb components")
 )
 
 type TxModifiableFlag byte
@@ -280,45 +301,14 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 	var txOffset *mw.BlindingFactor
 	var stealthOffset *mw.BlindingFactor
 
-	// Next we parse the GLOBAL section.
-	// For PSBTv0, we insist UnsignedTxType must be first; unknowns are allowed, but only after.
+	// Next we parse the GLOBAL section. The unsigned-tx key may appear at
+	// any position; its derived values are resolved after the map ends.
 	kvPair, err := getKVPair(r)
 	if err != nil {
 		return nil, err
 	}
 	if kvPair == nil {
 		return nil, ErrInvalidPsbtFormat
-	}
-
-	if GlobalType(kvPair.keyType) == UnsignedTxType {
-		if kvPair.keyData != nil {
-			return nil, ErrInvalidPsbtFormat
-		}
-
-		msgTx = wire.NewMsgTx(2)
-
-		// BIP-0174 states: "The transaction must be in the old serialization
-		// format (without witnesses)."
-		err = msgTx.DeserializeNoWitness(bytes.NewReader(kvPair.valueData))
-		if err != nil {
-			return nil, err
-		}
-		if !validateUnsignedTX(msgTx) {
-			return nil, ErrInvalidRawTxSigned
-		}
-
-		psbtVersion = uint32Ptr(0)
-		txVersion = &msgTx.Version
-		fallbackLockTime = uint32Ptr(msgTx.LockTime)
-		inputCount = intPtr(len(msgTx.TxIn))
-		outputCount = intPtr(len(msgTx.TxOut))
-		kernelCount = intPtr(0)
-
-		// Advance past the already-processed UnsignedTx key
-		kvPair, err = getKVPair(r)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	globalKeys := newKeySet()
@@ -331,6 +321,15 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			return nil, ErrDuplicateKey
 		}
 
+		if !kvPair.isKnownType() {
+			unknownSlice = append(unknownSlice, kvPair.asUnknown())
+			kvPair, err = getKVPair(r)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		globalType := GlobalType(kvPair.keyType)
 		if psbtVersion != nil && *psbtVersion == 0 && illegalPsbtV0GlobalKeys[globalType] {
 			return nil, ErrUnsupportedFieldInPsbtVersion
@@ -338,8 +337,21 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 		switch globalType {
 		case UnsignedTxType:
-			// UnsignedTxType should've already been parsed above
-			return nil, ErrInvalidPsbtFormat
+			if kvPair.keyData != nil {
+				return nil, ErrInvalidPsbtFormat
+			}
+
+			msgTx = wire.NewMsgTx(2)
+
+			// BIP-0174 states: "The transaction must be in the old
+			// serialization format (without witnesses)."
+			err = msgTx.DeserializeNoWitness(bytes.NewReader(kvPair.valueData))
+			if err != nil {
+				return nil, err
+			}
+			if !validateUnsignedTX(msgTx) {
+				return nil, ErrInvalidRawTxSigned
+			}
 		case XpubType:
 			if len(kvPair.keyData) != BIP32_EXTKEY_WITH_VERSION_SIZE {
 				return nil, ErrInvalidKeyData
@@ -370,21 +382,13 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 			fallbackLockTime = uint32Ptr(binary.LittleEndian.Uint32(kvPair.valueData))
 		case InputCountType:
-			if kvPair.keyData != nil || kvPair.valueData == nil {
-				return nil, ErrInvalidPsbtFormat
-			}
-
-			value, err := wire.ReadVarInt(bytes.NewReader(kvPair.valueData), 0)
+			value, err := kvPair.mapCountValue()
 			if err != nil {
 				return nil, err
 			}
 			inputCount = intPtr(int(value))
 		case OutputCountType:
-			if kvPair.keyData != nil || kvPair.valueData == nil {
-				return nil, ErrInvalidPsbtFormat
-			}
-
-			value, err := wire.ReadVarInt(bytes.NewReader(kvPair.valueData), 0)
+			value, err := kvPair.mapCountValue()
 			if err != nil {
 				return nil, err
 			}
@@ -400,7 +404,9 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			modifiableFlag := TxModifiableFlag(kvPair.valueData[0])
 			txModifiableFlag = &modifiableFlag
 		case MwebTxOffsetType:
-			if kvPair.keyData != nil || len(kvPair.valueData) != 32 {
+			if kvPair.keyData != nil || len(kvPair.valueData) != 32 ||
+				!scalarInRange(kvPair.valueData) {
+
 				return nil, ErrInvalidPsbtFormat
 			}
 			txOffset = mw.ReadBlindingFactor(kvPair.valueData)
@@ -408,7 +414,9 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 				return nil, ErrInvalidPsbtFormat
 			}
 		case MwebTxStealthOffsetType:
-			if kvPair.keyData != nil || len(kvPair.valueData) != 32 {
+			if kvPair.keyData != nil || len(kvPair.valueData) != 32 ||
+				!scalarInRange(kvPair.valueData) {
+
 				return nil, ErrInvalidPsbtFormat
 			}
 			stealthOffset = mw.ReadBlindingFactor(kvPair.valueData)
@@ -416,14 +424,7 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 				return nil, ErrInvalidPsbtFormat
 			}
 		case MwebKernelCountType:
-			if psbtVersion != nil && *psbtVersion == 0 {
-				return nil, ErrInvalidPsbtFormat
-			}
-			if kvPair.keyData != nil || kvPair.valueData == nil {
-				return nil, ErrInvalidPsbtFormat
-			}
-
-			value, err := wire.ReadVarInt(bytes.NewReader(kvPair.valueData), 0)
+			value, err := kvPair.mapCountValue()
 			if err != nil {
 				return nil, err
 			}
@@ -436,30 +437,58 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		//case ProprietaryGlobalType:
 		default:
 			// A fall through case for any proprietary types.
-			keyCodeAndData := append(
-				[]byte{kvPair.keyType}, kvPair.keyData...,
-			)
-			newUnknown := &Unknown{
-				Key:   keyCodeAndData,
-				Value: kvPair.valueData,
-			}
-
-			unknownSlice = append(unknownSlice, newUnknown)
+			unknownSlice = append(unknownSlice, kvPair.asUnknown())
 		}
 
 		kvPair, err = getKVPair(r)
 		if err != nil {
 			return nil, err
 		}
+	}
 
-		// If this is separator byte (nil kvPair), this section is done.
-		if kvPair == nil {
-			break
+	// A packet with an unsigned transaction and no version key is v0, and
+	// the transaction supplies the derived values.
+	if msgTx != nil && psbtVersion == nil {
+		psbtVersion = uint32Ptr(0)
+	}
+	if msgTx != nil && *psbtVersion == 0 {
+		txVersion = &msgTx.Version
+		fallbackLockTime = uint32Ptr(msgTx.LockTime)
+		inputCount = intPtr(len(msgTx.TxIn))
+		outputCount = intPtr(len(msgTx.TxOut))
+		kernelCount = intPtr(0)
+	}
+
+	if psbtVersion == nil || txVersion == nil || inputCount == nil || outputCount == nil {
+		return nil, ErrInvalidPsbtFormat
+	}
+
+	// Only versions 0 and 2 exist; anything else cannot round-trip.
+	if *psbtVersion != 0 && *psbtVersion != 2 {
+		return nil, ErrUnsupportedFieldInPsbtVersion
+	}
+
+	// The version key may appear after other global keys, so the per-key v0
+	// check can miss v2-only keys parsed before it. Re-check now that the
+	// final version is known.
+	if *psbtVersion == 0 {
+		for globalType := range illegalPsbtV0GlobalKeys {
+			if globalKeys.hasType(uint64(globalType)) {
+				return nil, ErrUnsupportedFieldInPsbtVersion
+			}
 		}
 	}
 
-	if psbtVersion == nil || txVersion == nil || inputCount == nil || outputCount == nil || kernelCount == nil {
-		return nil, ErrInvalidPsbtFormat
+	// BIP-0370: the unsigned transaction is excluded from v2.
+	if *psbtVersion >= 2 && msgTx != nil {
+		return nil, ErrUnsupportedFieldInPsbtVersion
+	}
+
+	// LIP-0007: the kernel count is omitted when there are no kernel maps.
+	// (A present count of zero is tolerated for compatibility with packets
+	// serialized before that rule.)
+	if kernelCount == nil {
+		kernelCount = intPtr(0)
 	}
 
 	// Next we parse the INPUT section.
@@ -498,6 +527,14 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		kernelSlice[i] = kernel
 	}
 
+	// Per BIP-0174/BIP-0370 strict parsing, the declared counts must cover
+	// the whole packet: surplus maps or trailing bytes are an error, not
+	// silently dropped data.
+	var trailing [1]byte
+	if _, err := io.ReadFull(r, trailing[:]); err != io.EOF {
+		return nil, ErrInvalidPsbtFormat
+	}
+
 	// Populate the new Packet object.
 	newPsbt := Packet{
 		PsbtVersion:       *psbtVersion,
@@ -526,6 +563,15 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 // Serialize creates a binary serialization of the referenced Packet struct
 // with lexicographical ordering (by key) of the subsections.
 func (p *Packet) Serialize(w io.Writer) error {
+	// MWEB components have no v0 representation.
+	if p.PsbtVersion == 0 && p.HasMwebComponents() {
+		return ErrInvalidPsbtFormat
+	}
+
+	if err := p.checkMwebOrdering(); err != nil {
+		return err
+	}
+
 	// First we write out the precise set of magic bytes that identify a
 	// valid PSBT transaction.
 	if _, err := w.Write(psbtMagic[:]); err != nil {
@@ -550,22 +596,17 @@ func (p *Packet) Serialize(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-	} else {
-		// Psbt Version
-		var psbtVersionBytes [4]byte
-		binary.LittleEndian.PutUint32(psbtVersionBytes[:], uint32(p.PsbtVersion))
-		if err := serializeKVPairWithType(w, uint8(VersionType), nil, psbtVersionBytes[:]); err != nil {
-			return err
-		}
 	}
 
 	for _, extPubKey := range p.ExtPubKeys {
 		// Strip checksum from base58 and take raw 78 bytes
 		keyData := writeExtendedKey(extPubKey.ExtKey)
 
-		// Build valueData: 4-byte fingerprint + derivation path (LE uint32s)
+		// Build valueData: 4-byte fingerprint + derivation path. The
+		// fingerprint round-trips through the same little-endian read
+		// ReadBip32Derivation uses, preserving the original bytes.
 		valueData := make([]byte, 4+len(extPubKey.Path)*4)
-		binary.BigEndian.PutUint32(valueData[0:4], extPubKey.Fingerprint) // BIP32 fingerprint is big-endian
+		binary.LittleEndian.PutUint32(valueData[0:4], extPubKey.Fingerprint)
 		for i, index := range extPubKey.Path {
 			binary.LittleEndian.PutUint32(valueData[4+i*4:], index)
 		}
@@ -575,6 +616,9 @@ func (p *Packet) Serialize(w io.Writer) error {
 		}
 	}
 
+	// The v2 global keys follow the BIP-0370 global map order: tx version,
+	// fallback locktime, counts, modifiable, kernel count, offsets, and
+	// the version key last.
 	if p.PsbtVersion >= 2 {
 		// Tx Version
 		var txVersionBytes [4]byte
@@ -588,27 +632,6 @@ func (p *Packet) Serialize(w io.Writer) error {
 			var fallbackLockTimeBytes [4]byte
 			binary.LittleEndian.PutUint32(fallbackLockTimeBytes[:], *p.FallbackLocktime)
 			if err := serializeKVPairWithType(w, uint8(FallbackLockTimeType), nil, fallbackLockTimeBytes[:]); err != nil {
-				return err
-			}
-		}
-
-		// Tx Modifiable Flags
-		if p.TxModifiableFlag != nil {
-			if err := serializeKVPairWithType(w, uint8(TxModifiableType), nil, []byte{byte(*p.TxModifiableFlag)}); err != nil {
-				return err
-			}
-		}
-
-		// MWEB Tx Offset
-		if p.MwebTxOffset != nil {
-			if err := serializeKVPairWithType(w, uint8(MwebTxOffsetType), nil, p.MwebTxOffset[:]); err != nil {
-				return err
-			}
-		}
-
-		// MWEB Stealth Offset
-		if p.MwebTxOffset != nil {
-			if err := serializeKVPairWithType(w, uint8(MwebTxStealthOffsetType), nil, p.MwebStealthOffset[:]); err != nil {
 				return err
 			}
 		}
@@ -631,12 +654,42 @@ func (p *Packet) Serialize(w io.Writer) error {
 			return err
 		}
 
-		// Kernel Count
-		var kernelCountValue bytes.Buffer
-		if err := wire.WriteVarInt(&kernelCountValue, 0, uint64(len(p.Kernels))); err != nil {
-			return err
+		// Tx Modifiable Flags
+		if p.TxModifiableFlag != nil {
+			if err := serializeKVPairWithType(w, uint8(TxModifiableType), nil, []byte{byte(*p.TxModifiableFlag)}); err != nil {
+				return err
+			}
 		}
-		if err := serializeKVPairWithType(w, uint8(MwebKernelCountType), nil, kernelCountValue.Bytes()); err != nil {
+
+		// Kernel Count. LIP-0007: present iff kernel maps follow.
+		if len(p.Kernels) > 0 {
+			var kernelCountValue bytes.Buffer
+			if err := wire.WriteVarInt(&kernelCountValue, 0, uint64(len(p.Kernels))); err != nil {
+				return err
+			}
+			if err := serializeKVPairWithType(w, uint8(MwebKernelCountType), nil, kernelCountValue.Bytes()); err != nil {
+				return err
+			}
+		}
+
+		// MWEB Tx Offset
+		if p.MwebTxOffset != nil {
+			if err := serializeKVPairWithType(w, uint8(MwebTxOffsetType), nil, p.MwebTxOffset[:]); err != nil {
+				return err
+			}
+		}
+
+		// MWEB Stealth Offset
+		if p.MwebStealthOffset != nil {
+			if err := serializeKVPairWithType(w, uint8(MwebTxStealthOffsetType), nil, p.MwebStealthOffset[:]); err != nil {
+				return err
+			}
+		}
+
+		// Psbt Version
+		var psbtVersionBytes [4]byte
+		binary.LittleEndian.PutUint32(psbtVersionBytes[:], uint32(p.PsbtVersion))
+		if err := serializeKVPairWithType(w, uint8(VersionType), nil, psbtVersionBytes[:]); err != nil {
 			return err
 		}
 	}
@@ -697,24 +750,16 @@ func (p *Packet) B64Encode() (string, error) {
 // whether the final extraction to a network serialized signed
 // transaction will be possible.
 func (p *Packet) IsComplete() bool {
-	if p.HasMwebComponents() {
-		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil || len(p.Kernels) == 0 {
-			return false
-		}
+	if p.HasMwebComponents() &&
+		(len(p.Kernels) == 0 || !mwebComponentsFinal(p)) {
+
+		return false
 	}
 
+	// The MWEB side is covered above; this closes over canonical inputs
+	// (POutput/PKernel isFinalized are trivially true off-MWEB).
 	for _, input := range p.Inputs {
 		if !input.isFinalized() {
-			return false
-		}
-	}
-	for _, output := range p.Outputs {
-		if !output.isFinalized() {
-			return false
-		}
-	}
-	for _, kernel := range p.Kernels {
-		if !kernel.isFinalized() {
 			return false
 		}
 	}
@@ -726,13 +771,17 @@ func (p *Packet) IsComplete() bool {
 // rules of BIP174, and returns true if so, false if not.
 func (p *Packet) SanityCheck() error {
 	if p.PsbtVersion == 0 {
-		if !validateUnsignedTX(p.UnsignedTx) {
+		if p.UnsignedTx == nil || !validateUnsignedTX(p.UnsignedTx) {
 			return ErrInvalidRawTxSigned
 		}
 
 		if p.HasMwebComponents() {
 			return ErrInvalidPsbtFormat
 		}
+	}
+
+	if err := p.checkMwebOrdering(); err != nil {
+		return err
 	}
 
 	for _, tin := range p.Inputs {
@@ -756,27 +805,84 @@ func (p *Packet) SanityCheck() error {
 	return nil
 }
 
-// GetTxFee returns the transaction fee.  An error is returned if a transaction
-// input does not contain any UTXO information.
+// RedactSensitive removes the key material LIP-0007 marks sensitive — the
+// shared secrets and address descriptors — from every input, for use before
+// forwarding a packet to parties that no longer need them. Redaction is a
+// host decision; serialization itself always round-trips these fields.
+func (p *Packet) RedactSensitive() {
+	for i := range p.Inputs {
+		p.Inputs[i].MwebSharedSecret = nil
+		p.Inputs[i].MwebAddrDescriptor = nil
+	}
+}
+
+// checkMwebOrdering enforces LIP-0007's section ordering: MWEB input maps
+// come after all canonical input maps, and likewise for outputs.
+func (p *Packet) checkMwebOrdering() error {
+	sawMweb := false
+	for i := range p.Inputs {
+		if p.Inputs[i].isMWEB() {
+			sawMweb = true
+		} else if sawMweb {
+			return ErrInvalidPsbtFormat
+		}
+	}
+
+	sawMweb = false
+	for i := range p.Outputs {
+		if p.Outputs[i].isMWEB() {
+			sawMweb = true
+		} else if sawMweb {
+			return ErrInvalidPsbtFormat
+		}
+	}
+
+	return nil
+}
+
+// GetTxFee returns the transaction fee via BIP-0174 fee analysis:
+// (canonical UTXO values + explicit MWEB input amounts + peg-in amounts)
+// minus (all output amounts + peg-out amounts). An error is returned if an
+// input lacks its UTXO information or amounts fall outside the money range.
 func (p *Packet) GetTxFee() (ltcutil.Amount, error) {
-	sumInputs, err := SumUtxoInputValues(p)
+	sumIn, err := sumInputValues(p, true)
+	if err != nil {
+		return 0, err
+	}
+	sumInputs := uint64(sumIn)
+
+	var sumOutputs uint64
+	if p.PsbtVersion == 0 {
+		for _, txOut := range p.UnsignedTx.TxOut {
+			if err := addAmount(&sumOutputs, txOut.Value); err != nil {
+				return 0, err
+			}
+		}
+	} else {
+		for idx := range p.Outputs {
+			if err := addAmount(&sumOutputs, int64(p.Outputs[idx].Amount)); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	_, pegins, pegouts, err := kernelTotals(p)
 	if err != nil {
 		return 0, err
 	}
 
-	var sumOutputs int64
-	for _, txOut := range p.UnsignedTx.TxOut {
-		sumOutputs += txOut.Value
+	totalIn, err := addChecked(sumInputs, pegins)
+	if err != nil {
+		return 0, err
 	}
-
-	fee := ltcutil.Amount(sumInputs - sumOutputs)
-
-	for _, kernel := range p.Kernels {
-		if kernel.Fee != nil {
-			fee += *kernel.Fee
-		}
+	totalOut, err := addChecked(sumOutputs, pegouts)
+	if err != nil {
+		return 0, err
 	}
-	return fee, nil
+	if totalIn < totalOut {
+		return 0, errors.New("negative transaction fee")
+	}
+	return ltcutil.Amount(totalIn - totalOut), nil
 }
 
 func (p *Packet) HasMwebComponents() bool {
@@ -799,16 +905,38 @@ func (p *Packet) HasMwebComponents() bool {
 	return false
 }
 
+// prevOutpoint returns input i's previous outpoint for either PSBT version.
+func (p *Packet) prevOutpoint(i int) (wire.OutPoint, error) {
+	if p.PsbtVersion == 0 {
+		if p.UnsignedTx == nil || i >= len(p.UnsignedTx.TxIn) {
+			return wire.OutPoint{}, ErrInvalidPsbtFormat
+		}
+		return p.UnsignedTx.TxIn[i].PreviousOutPoint, nil
+	}
+
+	if i >= len(p.Inputs) {
+		return wire.OutPoint{}, ErrInvalidPsbtFormat
+	}
+	pInput := p.Inputs[i]
+	if pInput.PrevoutHash == nil || pInput.PrevoutIndex == nil {
+		return wire.OutPoint{}, ErrInvalidPsbtFormat
+	}
+	return wire.OutPoint{
+		Hash:  *pInput.PrevoutHash,
+		Index: *pInput.PrevoutIndex,
+	}, nil
+}
+
 func (p *Packet) getPrevOut(i int) (*wire.OutPoint, *chainhash.Hash) {
 	if p.PsbtVersion == 0 {
-		if p.UnsignedTx == nil || len(p.UnsignedTx.TxIn) < i {
+		if p.UnsignedTx == nil || i >= len(p.UnsignedTx.TxIn) {
 			return nil, nil
 		}
 
 		return &p.UnsignedTx.TxIn[i].PreviousOutPoint, nil
 	}
 
-	if len(p.Inputs) < i {
+	if i >= len(p.Inputs) {
 		return nil, nil
 	}
 

@@ -36,19 +36,22 @@ type PInput struct {
 	TaprootInternalKey     []byte
 	TaprootMerkleRoot      []byte
 	MwebOutputId           *chainhash.Hash
-	MwebAddressIndex       *uint32
-	MwebAmount             *ltcutil.Amount
-	MwebSharedSecret       *mw.SecretKey
-	MwebKeyExchangePubkey  *mw.PublicKey
-	MwebCommit             *mw.Commitment
-	MwebOutputPubkey       *mw.PublicKey
-	MwebInputPubkey        *mw.PublicKey
-	MwebFeatures           *wire.MwebInputFeatureBit
-	MwebInputSig           *mw.Signature
-	MwebMasterScanKey      *Bip32Derivation
-	MwebMasterSpendKey     *Bip32Derivation
-	MwebExtraData          []byte
-	Unknowns               []*Unknown
+	MwebAddrDescriptor     []byte
+
+	// sighashZero records that the packet carried an explicit sighash key
+	// with value 0 (SIGHASH_DEFAULT), which must round-trip even though
+	// the zero value otherwise means "absent".
+	sighashZero           bool
+	MwebAmount            *ltcutil.Amount
+	MwebSharedSecret      *mw.SecretKey
+	MwebKeyExchangePubkey *mw.PublicKey
+	MwebCommit            *mw.Commitment
+	MwebOutputPubkey      *mw.PublicKey
+	MwebInputPubkey       *mw.PublicKey
+	MwebFeatures          *wire.MwebInputFeatureBit
+	MwebInputSig          *mw.Signature
+	MwebExtraData         []byte
+	Unknowns              []*Unknown
 }
 
 // NewPsbtInput creates an instance of PsbtInput given either a nonWitnessUtxo
@@ -74,7 +77,7 @@ func NewPsbtInput(nonWitnessUtxo *wire.MsgTx, witnessUtxo *wire.TxOut) *PInput {
 		RequiredTimeLockTime:   nil,
 		RequiredHeightLockTime: nil,
 		MwebOutputId:           nil,
-		MwebAddressIndex:       nil,
+		MwebAddrDescriptor:     nil,
 		MwebAmount:             nil,
 		MwebSharedSecret:       nil,
 		MwebKeyExchangePubkey:  nil,
@@ -83,8 +86,6 @@ func NewPsbtInput(nonWitnessUtxo *wire.MsgTx, witnessUtxo *wire.TxOut) *PInput {
 		MwebInputPubkey:        nil,
 		MwebFeatures:           nil,
 		MwebInputSig:           nil,
-		MwebMasterScanKey:      nil,
-		MwebMasterSpendKey:     nil,
 		MwebExtraData:          nil,
 		Unknowns:               nil,
 	}
@@ -101,7 +102,7 @@ func (pi *PInput) isSane(psbtVersion uint32) bool {
 	// No MWEB fields should be set on PSBTv0 inputs or non-MWEB inputs
 	if psbtVersion < 2 || !pi.isMWEB() {
 		if pi.MwebOutputId != nil ||
-			pi.MwebAddressIndex != nil ||
+			pi.MwebAddrDescriptor != nil ||
 			pi.MwebAmount != nil ||
 			pi.MwebSharedSecret != nil ||
 			pi.MwebKeyExchangePubkey != nil ||
@@ -125,7 +126,11 @@ func (pi *PInput) isSane(psbtVersion uint32) bool {
 	}
 
 	if psbtVersion >= 2 {
-		if pi.PrevoutHash == nil || pi.PrevoutIndex == nil {
+		// Per BIP-0370 PSBT_IN_PREVIOUS_TXID handling, an explicit zero
+		// hash is treated as missing.
+		if pi.PrevoutHash == nil || *pi.PrevoutHash == (chainhash.Hash{}) ||
+			pi.PrevoutIndex == nil {
+
 			return false
 		}
 	}
@@ -142,13 +147,20 @@ func (pi *PInput) isFinalized() bool {
 			return false
 		}
 
-		// If Input stealth key feature bit is set, input pubkey must be provided
-		if *pi.MwebFeatures&wire.MwebInputStealthKeyFeatureBit > 0 && pi.MwebInputPubkey == nil {
+		// The stealth-key bit and the input pubkey must agree: the pubkey is
+		// serialized (and enters the stealth sum) only when the bit is set,
+		// so a bit-clear pubkey has no on-chain representation.
+		if (pi.MwebInputPubkey != nil) !=
+			(*pi.MwebFeatures&wire.MwebInputStealthKeyFeatureBit > 0) {
+
 			return false
 		}
 
-		// If extra data feature bit is set, it must be provided
-		if *pi.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0 && len(pi.MwebExtraData) == 0 {
+		// The extra-data bit and field must agree: the signature commits
+		// to extra data only when the bit is set.
+		if (len(pi.MwebExtraData) > 0) !=
+			(*pi.MwebFeatures&wire.MwebInputExtraDataFeatureBit > 0) {
+
 			return false
 		}
 
@@ -175,12 +187,10 @@ var (
 		MwebInputPubKeyType:             true,
 		MwebInputFeaturesType:           true,
 		MwebInputSignatureType:          true,
-		MwebAddressIndexType:            true,
+		MwebAddrDescriptorType:          true,
 		MwebInputAmountType:             true,
 		MwebSharedSecretType:            true,
 		MwebKeyExchangePubKeyType:       true,
-		MwebMasterScanKeyOriginType:     true,
-		MwebMasterSpendKeyOriginType:    true,
 		MwebInputExtraDataType:          true,
 	}
 	illegalPsbtV2InputKeys = map[InputType]bool{}
@@ -213,6 +223,11 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 		// According to BIP-0174, <key> := <keylen><keytype><keydata> must be unique per map
 		if !inputKeys.addKey(kvPair.keyType, kvPair.keyData) {
 			return ErrDuplicateKey
+		}
+
+		if !kvPair.isKnownType() {
+			pi.Unknowns = append(pi.Unknowns, kvPair.asUnknown())
+			continue
 		}
 
 		// Check if kvPair.keyType is allowed for psbtVersion
@@ -272,6 +287,7 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 				binary.LittleEndian.Uint32(kvPair.valueData),
 			)
 			pi.SighashType = sighashType
+			pi.sighashZero = sighashType == 0
 
 		case RedeemScriptInputType:
 			if kvPair.keyData != nil {
@@ -359,27 +375,31 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 			pi.Sequence = &sequence
 
 		case RequiredTimeLocktimeInputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(4)
+			if err != nil {
+				return err
 			}
 
-			if len(kvPair.valueData) != 4 {
-				return ErrInvalidKeyData
+			// BIP-0370: time locks live at or above the threshold
+			// consensus uses to tell timestamps from heights.
+			requiredTimeLockTime := binary.LittleEndian.Uint32(value)
+			if requiredTimeLockTime < txscript.LockTimeThreshold {
+				return ErrInvalidPsbtFormat
 			}
-
-			requiredTimeLockTime := binary.LittleEndian.Uint32(kvPair.valueData)
 			pi.RequiredTimeLockTime = &requiredTimeLockTime
 
 		case RequiredHeightLocktimeInputType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(4)
+			if err != nil {
+				return err
 			}
 
-			if len(kvPair.valueData) != 4 {
-				return ErrInvalidKeyData
+			// Zero is accepted and treated as no lock (LIP-0007 kernel
+			// required-height-locktime field).
+			requiredHeightLockTime := binary.LittleEndian.Uint32(value)
+			if requiredHeightLockTime >= txscript.LockTimeThreshold {
+				return ErrInvalidPsbtFormat
 			}
-
-			requiredHeightLockTime := binary.LittleEndian.Uint32(kvPair.valueData)
 			pi.RequiredHeightLockTime = &requiredHeightLockTime
 
 		case TaprootKeySpendSignatureType:
@@ -509,121 +529,86 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 				return err
 			}
 		case MwebSpentOutputCommitType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-
-			pi.MwebCommit = mw.ReadCommitment(kvPair.valueData)
-			if pi.MwebCommit == nil {
-				return ErrInvalidPsbtFormat
+			pi.MwebCommit, err = kvPair.commitmentValue()
+			if err != nil {
+				return err
 			}
 		case MwebSpentOutputPubKeyType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
+			if err != nil {
+				return err
 			}
 
-			pi.MwebOutputPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			pi.MwebOutputPubkey, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
 			}
 		case MwebInputPubKeyType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
+			if err != nil {
+				return err
 			}
 
-			pi.MwebInputPubkey, err = mw.ReadPublicKey(kvPair.valueData)
+			pi.MwebInputPubkey, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
 			}
 		case MwebInputFeaturesType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 1 {
-				return ErrInvalidPsbtFormat
+			value, err := kvPair.fixedValue(1)
+			if err != nil {
+				return err
 			}
 
-			features := wire.MwebInputFeatureBit(kvPair.valueData[0])
+			features := wire.MwebInputFeatureBit(value[0])
 			pi.MwebFeatures = &features
 		case MwebInputSignatureType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
+			value, err := kvPair.fixedValue(len(mw.Signature{}))
+			if err != nil {
+				return err
 			}
 
-			pi.MwebInputSig = mw.ReadSignature(kvPair.valueData)
+			pi.MwebInputSig = mw.ReadSignature(value)
 			if pi.MwebInputSig == nil {
 				return ErrInvalidPsbtFormat
 			}
-		case MwebAddressIndexType:
+		case MwebAddrDescriptorType:
 			if kvPair.keyData != nil {
 				return ErrInvalidKeyData
 			}
-			if len(kvPair.valueData) != 4 {
+			// LIP-0007: an exactly-4-byte value is the legacy address-index
+			// encoding and is silently ignored.
+			if len(kvPair.valueData) == 4 {
+				break
+			}
+			if !isMwebDescriptor(kvPair.valueData) {
 				return ErrInvalidPsbtFormat
 			}
 
-			pi.MwebAddressIndex = uint32Ptr(binary.LittleEndian.Uint32(kvPair.valueData))
+			pi.MwebAddrDescriptor = kvPair.valueData
 		case MwebInputAmountType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 8 {
-				return ErrInvalidPsbtFormat
+			value, err := kvPair.fixedValue(8)
+			if err != nil {
+				return err
 			}
 
-			mwebAmount := ltcutil.Amount(binary.LittleEndian.Uint64(kvPair.valueData))
+			mwebAmount := ltcutil.Amount(binary.LittleEndian.Uint64(value))
 			pi.MwebAmount = &mwebAmount
 		case MwebSharedSecretType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-			if len(kvPair.valueData) != 32 {
-				return ErrInvalidPsbtFormat
+			value, err := kvPair.fixedValue(len(mw.SecretKey{}))
+			if err != nil {
+				return err
 			}
 
-			pi.MwebSharedSecret = (*mw.SecretKey)(kvPair.valueData)
+			pi.MwebSharedSecret = (*mw.SecretKey)(value)
 		case MwebKeyExchangePubKeyType:
-			if kvPair.keyData != nil {
-				return ErrInvalidKeyData
-			}
-
-			pi.MwebKeyExchangePubkey, err = mw.ReadPublicKey(kvPair.valueData)
-			if err != nil {
-				return err
-			}
-		case MwebMasterScanKeyOriginType:
-			if pi.MwebMasterScanKey != nil {
-				return ErrInvalidPsbtFormat
-			}
-			if !validatePubkey(kvPair.keyData) {
-				return ErrInvalidPsbtFormat
-			}
-			master, derivationPath, err := ReadBip32Derivation(kvPair.valueData)
+			value, err := kvPair.fixedValue(len(mw.PublicKey{}))
 			if err != nil {
 				return err
 			}
 
-			pi.MwebMasterScanKey = &Bip32Derivation{
-				PubKey:               kvPair.keyData,
-				MasterKeyFingerprint: master,
-				Bip32Path:            derivationPath,
-			}
-		case MwebMasterSpendKeyOriginType:
-			if pi.MwebMasterSpendKey != nil {
-				return ErrInvalidPsbtFormat
-			}
-			if !validatePubkey(kvPair.keyData) {
-				return ErrInvalidPsbtFormat
-			}
-			master, derivationPath, err := ReadBip32Derivation(kvPair.valueData)
+			pi.MwebKeyExchangePubkey, err = mw.ReadPublicKey(value)
 			if err != nil {
 				return err
-			}
-
-			pi.MwebMasterSpendKey = &Bip32Derivation{
-				PubKey:               kvPair.keyData,
-				MasterKeyFingerprint: master,
-				Bip32Path:            derivationPath,
 			}
 		case MwebInputExtraDataType:
 			if kvPair.keyData != nil {
@@ -632,15 +617,7 @@ func (pi *PInput) deserialize(r io.Reader, psbtVersion uint32) error {
 			pi.MwebExtraData = kvPair.valueData
 		default:
 			// A fall through case for any proprietary types.
-			keyCodeAndData := append(
-				[]byte{kvPair.keyType}, kvPair.keyData...,
-			)
-			newUnknown := &Unknown{
-				Key:   keyCodeAndData,
-				Value: kvPair.valueData,
-			}
-
-			pi.Unknowns = append(pi.Unknowns, newUnknown)
+			pi.Unknowns = append(pi.Unknowns, kvPair.asUnknown())
 		}
 	}
 
@@ -694,7 +671,7 @@ func (pi *PInput) serialize(w io.Writer, psbtVersion uint32) error {
 			}
 		}
 
-		if pi.SighashType != 0 {
+		if pi.SighashType != 0 || pi.sighashZero {
 			var shtBytes [4]byte
 			binary.LittleEndian.PutUint32(
 				shtBytes[:], uint32(pi.SighashType),
@@ -976,69 +953,47 @@ func (pi *PInput) serialize(w io.Writer, psbtVersion uint32) error {
 			}
 		}
 
-		if pi.MwebInputSig == nil {
-			if pi.MwebAddressIndex != nil {
-				var buf [4]byte
-				binary.LittleEndian.PutUint32(buf[:], *pi.MwebAddressIndex)
-				err := serializeKVPairWithType(
-					w, uint8(MwebAddressIndexType), nil,
-					buf[:],
-				)
-				if err != nil {
-					return err
-				}
+		// Every field round-trips; redacting the shared secret is a host
+		// decision, not a serializer rule.
+		if pi.MwebAddrDescriptor != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebAddrDescriptorType), nil,
+				pi.MwebAddrDescriptor,
+			)
+			if err != nil {
+				return err
 			}
+		}
 
-			if pi.MwebAmount != nil {
-				var buf [8]byte
-				binary.LittleEndian.PutUint64(buf[:], uint64(*pi.MwebAmount))
-				err := serializeKVPairWithType(
-					w, uint8(MwebInputAmountType), nil,
-					buf[:],
-				)
-				if err != nil {
-					return err
-				}
+		if pi.MwebAmount != nil {
+			var buf [8]byte
+			binary.LittleEndian.PutUint64(buf[:], uint64(*pi.MwebAmount))
+			err := serializeKVPairWithType(
+				w, uint8(MwebInputAmountType), nil,
+				buf[:],
+			)
+			if err != nil {
+				return err
 			}
+		}
 
-			if pi.MwebSharedSecret != nil {
-				err := serializeKVPairWithType(
-					w, uint8(MwebSharedSecretType), nil,
-					pi.MwebSharedSecret[:],
-				)
-				if err != nil {
-					return err
-				}
+		if pi.MwebSharedSecret != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebSharedSecretType), nil,
+				pi.MwebSharedSecret[:],
+			)
+			if err != nil {
+				return err
 			}
+		}
 
-			if pi.MwebKeyExchangePubkey != nil {
-				err := serializeKVPairWithType(
-					w, uint8(MwebKeyExchangePubKeyType), nil,
-					pi.MwebKeyExchangePubkey[:],
-				)
-				if err != nil {
-					return err
-				}
-			}
-
-			if pi.MwebMasterScanKey != nil {
-				scanKey := pi.MwebMasterScanKey
-				err := serializeKVPairWithType(w, uint8(MwebMasterScanKeyOriginType), scanKey.PubKey,
-					SerializeBIP32Derivation(scanKey.MasterKeyFingerprint, scanKey.Bip32Path),
-				)
-				if err != nil {
-					return err
-				}
-			}
-
-			if pi.MwebMasterSpendKey != nil {
-				spendKey := pi.MwebMasterSpendKey
-				err := serializeKVPairWithType(w, uint8(MwebMasterSpendKeyOriginType), spendKey.PubKey,
-					SerializeBIP32Derivation(spendKey.MasterKeyFingerprint, spendKey.Bip32Path),
-				)
-				if err != nil {
-					return err
-				}
+		if pi.MwebKeyExchangePubkey != nil {
+			err := serializeKVPairWithType(
+				w, uint8(MwebKeyExchangePubKeyType), nil,
+				pi.MwebKeyExchangePubkey[:],
+			)
+			if err != nil {
+				return err
 			}
 		}
 	}

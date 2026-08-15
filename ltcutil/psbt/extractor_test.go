@@ -21,8 +21,10 @@ func TestExtract_NonFinalized(t *testing.T) {
 	require.ErrorIs(t, err, ErrIncompletePSBT)
 }
 
-func TestExtract_ValidMWEB(t *testing.T) {
-	// Build a fully valid, minimal Packet
+// A structurally complete packet whose signatures and proofs are garbage must
+// not extract: LIP-0007 requires cryptographic verification before extraction.
+// (The valid-extraction path is covered by TestSignMwebComponents.)
+func TestExtract_InvalidMwebComponents(t *testing.T) {
 	inputFeatures := wire.MwebInputFeatureBit(0)
 	outputFeatures := wire.MwebOutputMessageFeatureBit(0)
 	kernelFeatures := wire.MwebKernelFeatureBit(0)
@@ -31,10 +33,11 @@ func TestExtract_ValidMWEB(t *testing.T) {
 		MwebTxOffset:      &mw.BlindingFactor{},
 		MwebStealthOffset: &mw.BlindingFactor{},
 		Inputs: []PInput{{
+			// Stealth-key bit clear, so no input pubkey (isFinalized
+			// enforces that agreement); the crypto itself is garbage.
 			MwebFeatures:     &inputFeatures,
 			MwebCommit:       &mw.Commitment{},
 			MwebOutputId:     &chainhash.Hash{},
-			MwebInputPubkey:  &mw.PublicKey{},
 			MwebOutputPubkey: &mw.PublicKey{},
 			MwebInputSig:     &mw.Signature{},
 		}},
@@ -53,21 +56,10 @@ func TestExtract_ValidMWEB(t *testing.T) {
 		}},
 	}
 
-	// Set required finalization fields
-	p.Inputs[0].MwebInputSig = &mw.Signature{}
-	p.Outputs[0].MwebSignature = &mw.Signature{}
-	p.Kernels[0].Signature = &mw.Signature{}
-
-	// Mark finalized
 	require.True(t, p.Inputs[0].isFinalized())
 	require.True(t, p.Outputs[0].isFinalized())
 	require.True(t, p.Kernels[0].isFinalized())
 
-	tx, err := Extract(p)
-	require.NoError(t, err)
-	require.NotNil(t, tx)
-	require.NotNil(t, tx.Mweb)
-	require.Equal(t, 1, len(tx.Mweb.TxBody.Inputs))
-	require.Equal(t, 1, len(tx.Mweb.TxBody.Outputs))
-	require.Equal(t, 1, len(tx.Mweb.TxBody.Kernels))
+	_, err := Extract(p)
+	require.Error(t, err)
 }

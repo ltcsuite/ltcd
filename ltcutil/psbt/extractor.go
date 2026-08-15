@@ -12,11 +12,10 @@ package psbt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 
-	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
-	"github.com/ltcsuite/ltcd/ltcutil/mweb"
 	"github.com/ltcsuite/ltcd/ltcutil/mweb/mw"
 	"github.com/ltcsuite/ltcd/txscript"
 	"github.com/ltcsuite/ltcd/wire"
@@ -70,18 +69,81 @@ func Extract(p *Packet) (*wire.MsgTx, error) {
 		}
 	}
 
+	if err := verifyCanonicalSignatures(p, finalTx); err != nil {
+		return nil, err
+	}
+
 	return finalTx, nil
 }
 
+// verifyCanonicalSignatures executes each canonical input's final script
+// against its spent output, per the BIP-0174 Transaction Extractor (scripts
+// are verified before the tx is emitted).
+func verifyCanonicalSignatures(p *Packet, tx *wire.MsgTx) error {
+	fetcher := txscript.NewMultiPrevOutFetcher(nil)
+	utxos := make([]*wire.TxOut, 0, len(tx.TxIn))
+	for idx := range p.Inputs {
+		pi := &p.Inputs[idx]
+		if pi.isMWEB() {
+			continue
+		}
+
+		// The non-witness transaction is preferred because it can be
+		// authenticated against the input's outpoint.
+		var utxo *wire.TxOut
+		switch {
+		case pi.NonWitnessUtxo != nil:
+			prevOut, err := p.prevOutpoint(idx)
+			if err != nil {
+				return err
+			}
+			if prevOut.Index >= uint32(len(pi.NonWitnessUtxo.TxOut)) ||
+				pi.NonWitnessUtxo.TxHash() != prevOut.Hash {
+
+				return ErrInvalidPrevOutNonWitnessTransaction
+			}
+			utxo = pi.NonWitnessUtxo.TxOut[prevOut.Index]
+		case pi.WitnessUtxo != nil:
+			utxo = pi.WitnessUtxo
+		default:
+			return fmt.Errorf("input %d has no UTXO information", idx)
+		}
+
+		fetcher.AddPrevOut(tx.TxIn[len(utxos)].PreviousOutPoint, utxo)
+		utxos = append(utxos, utxo)
+	}
+
+	hashCache := txscript.NewTxSigHashes(tx, fetcher)
+	for i, utxo := range utxos {
+		engine, err := txscript.NewEngine(
+			utxo.PkScript, tx, i, txscript.StandardVerifyFlags,
+			nil, hashCache, utxo.Value, fetcher,
+		)
+		if err != nil {
+			return err
+		}
+		if err := engine.Execute(); err != nil {
+			return fmt.Errorf("input %d script verification: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// ExtractUnsignedTx builds the transaction canonical signatures commit to.
+// Peg-in outputs come from the packet's output maps: while their kernels are
+// unsigned they still carry the placeholder script, which is exactly why the
+// MWEB components must be signed first.
 func ExtractUnsignedTx(p *Packet) (*wire.MsgTx, error) {
 	if p.PsbtVersion >= 2 {
 		tx := new(wire.MsgTx)
 		tx.Version = p.TxVersion
 
-		// TODO: Compute actual lock time
-		if p.FallbackLocktime != nil {
-			tx.LockTime = *p.FallbackLocktime
+		lockTime, err := effectiveLockTime(p)
+		if err != nil {
+			return nil, err
 		}
+		tx.LockTime = lockTime
 
 		for _, pi := range p.Inputs {
 			if !pi.isMWEB() {
@@ -101,18 +163,6 @@ func ExtractUnsignedTx(p *Packet) (*wire.MsgTx, error) {
 			}
 		}
 
-		for _, pk := range p.Kernels {
-			if pk.PeginAmount != nil {
-				kernelHash := &chainhash.Hash{}
-				kernel, _ := extractKernel(&pk)
-				if kernel != nil {
-					kernelHash = kernel.Hash()
-				}
-				pegin := mweb.NewPegin(uint64(*pk.PeginAmount), kernelHash)
-				tx.AddTxOut(pegin)
-			}
-		}
-
 		return tx, nil
 	} else {
 		return p.UnsignedTx.Copy(), nil
@@ -123,10 +173,11 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 	tx := new(wire.MsgTx)
 	tx.Version = p.TxVersion
 
-	// TODO: Compute actual lock time
-	if p.FallbackLocktime != nil {
-		tx.LockTime = *p.FallbackLocktime
+	lockTime, err := effectiveLockTime(p)
+	if err != nil {
+		return nil, err
 	}
+	tx.LockTime = lockTime
 
 	for _, pi := range p.Inputs {
 		if !pi.isMWEB() {
@@ -146,9 +197,25 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 		}
 	}
 
+	// A peg-in script with no MWEB components can never be satisfied.
+	if !p.HasMwebComponents() {
+		if err := validatePeginOutputs(p, true); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := verifyCanonicalSignatures(p, tx); err != nil {
+		return nil, err
+	}
+
 	if p.HasMwebComponents() {
 		if p.MwebTxOffset == nil || p.MwebStealthOffset == nil {
 			return nil, errors.New("missing MWEB offsets")
+		}
+
+		kernels, err := verifyMwebComponents(p)
+		if err != nil {
+			return nil, err
 		}
 
 		// Extract MWEB Inputs
@@ -175,20 +242,9 @@ func extractV2(p *Packet) (*wire.MsgTx, error) {
 			}
 		}
 
-		// Extract MWEB Kernels
-		var kernels []*wire.MwebKernel
-		for _, pk := range p.Kernels {
-			kernel, err := extractKernel(&pk)
-			if err != nil {
-				return nil, err
-			}
-			kernels = append(kernels, kernel)
-
-			if kernel.Pegin > 0 {
-				pegin := mweb.NewPegin(kernel.Pegin, kernel.Hash())
-				tx.AddTxOut(pegin)
-			}
-		}
+		// The kernels come pre-built from verification. Peg-in outputs
+		// are NOT synthesized here: they are canonical output maps in
+		// the packet, already emitted above with their final scripts.
 
 		// Sort components before assembling txBody
 		sort.Slice(inputs, func(i, j int) bool {

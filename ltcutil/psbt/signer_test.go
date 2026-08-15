@@ -74,7 +74,8 @@ func generateUnsignedPOutput(features wire.MwebOutputMessageFeatureBit) *POutput
 		extradata = []byte{0xaa, 0xbb, 0xcc}
 	}
 
-	amount := ltcutil.Amount(345678)
+	// Balances the 123456 input against the kernel's 10000 fee.
+	amount := ltcutil.Amount(113456)
 
 	scanKey, _ := mw.NewSecretKey()
 	spendKey, _ := mw.NewSecretKey()
@@ -158,6 +159,9 @@ func TestSignMwebComponents(t *testing.T) {
 
 	kernelFeatures := wire.MwebKernelStealthExcessFeatureBit | wire.MwebKernelFeeFeatureBit
 	pk := generateUnsignedPKernel(kernelFeatures)
+	// An unsigned kernel map cannot declare the stealth bit before the
+	// field exists; the signer derives the final features itself.
+	pk.Features = nil
 
 	packet := &Packet{
 		PsbtVersion:       2,

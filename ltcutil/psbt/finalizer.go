@@ -103,8 +103,11 @@ func isFinalizableLegacyInput(p *Packet, pInput *PInput, inIndex int) bool {
 
 	// Otherwise, we'll verify that we only have a RedeemScript if the prev
 	// output script is P2SH.
-	outIndex := p.UnsignedTx.TxIn[inIndex].PreviousOutPoint.Index
-	if txscript.IsPayToScriptHash(pInput.NonWitnessUtxo.TxOut[outIndex].PkScript) {
+	prevOut, err := p.prevOutpoint(inIndex)
+	if err != nil || prevOut.Index >= uint32(len(pInput.NonWitnessUtxo.TxOut)) {
+		return false
+	}
+	if txscript.IsPayToScriptHash(pInput.NonWitnessUtxo.TxOut[prevOut.Index].PkScript) {
 		if pInput.RedeemScript == nil {
 			return false
 		}
@@ -160,14 +163,20 @@ func isFinalizable(p *Packet, inIndex int) bool {
 // returning true with no error if it succeeds, OR if the input has already
 // been finalized.
 func MaybeFinalize(p *Packet, inIndex int) (bool, error) {
+	// Finalizing writes canonical signature data, which commits to the
+	// peg-in scripts the MWEB signer rewrites.
+	if !mwebComponentsFinal(p) {
+		return false, ErrMwebComponentsNotSigned
+	}
+
 	pInput := p.Inputs[inIndex]
 	if pInput.isFinalized() {
 		return true, nil
 	}
 
 	// MWEB inputs are finalized via SignMwebComponents, not through
-	// the regular finalization path. If an MWEB input reaches here
-	// without being finalized, it means signing was not completed.
+	// the regular finalization path. (mwebComponentsFinal above already
+	// guarantees they are.)
 	if pInput.isMWEB() {
 		return false, ErrIncompletePSBT
 	}
@@ -193,8 +202,6 @@ func MaybeFinalizeAll(p *Packet) error {
 		}
 	}
 
-	// TODO: Finalize MWEB components, which should remove everything except the extractable component fields
-
 	return nil
 }
 
@@ -206,6 +213,12 @@ func MaybeFinalizeAll(p *Packet) error {
 // are left intact as they may be needed for validation (?).  If there is any
 // invalid or incomplete data, an error is returned.
 func Finalize(p *Packet, inIndex int) error {
+	// Finalizing writes canonical signature data that commits to the peg-in
+	// scripts the MWEB signer rewrites, so the MWEB side must be signed first.
+	if !mwebComponentsFinal(p) {
+		return ErrMwebComponentsNotSigned
+	}
+
 	pInput := p.Inputs[inIndex]
 
 	// Depending on the UTXO type, we either attempt to finalize it as a
@@ -324,12 +337,19 @@ func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 
 		// Extract WitnessUtxo from the NonWitnessUtxo for the
 		// finalized witness input.
-		outIndex := p.UnsignedTx.TxIn[inIndex].PreviousOutPoint.Index
-		witnessUtxo := pInput.NonWitnessUtxo.TxOut[outIndex]
+		prevOut, err := p.prevOutpoint(inIndex)
+		if err != nil {
+			return err
+		}
+		if prevOut.Index >= uint32(len(pInput.NonWitnessUtxo.TxOut)) {
+			return ErrInvalidPrevOutNonWitnessTransaction
+		}
+		witnessUtxo := pInput.NonWitnessUtxo.TxOut[prevOut.Index]
 
 		newInput := NewPsbtInput(nil, witnessUtxo)
 		newInput.FinalScriptSig = sigScript
 		newInput.FinalScriptWitness = serializedWitness
+		keepTxFields(newInput, &pInput)
 		p.Inputs[inIndex] = *newInput
 		return nil
 	} else {
@@ -364,6 +384,7 @@ func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 	// other than non-witness utxo (00) and finaliscriptsig (07)
 	newInput := NewPsbtInput(pInput.NonWitnessUtxo, nil)
 	newInput.FinalScriptSig = sigScript
+	keepTxFields(newInput, &pInput)
 
 	// Overwrite the entry in the input list at the correct index. Note
 	// that this removes all the other entries in the list for this input
@@ -371,6 +392,16 @@ func finalizeNonWitnessInput(p *Packet, inIndex int) error {
 	p.Inputs[inIndex] = *newInput
 
 	return nil
+}
+
+// keepTxFields copies the BIP-0370 transaction-construction fields, which
+// remain mandatory on v2 inputs after finalization.
+func keepTxFields(newInput, old *PInput) {
+	newInput.PrevoutHash = old.PrevoutHash
+	newInput.PrevoutIndex = old.PrevoutIndex
+	newInput.Sequence = old.Sequence
+	newInput.RequiredTimeLockTime = old.RequiredTimeLockTime
+	newInput.RequiredHeightLockTime = old.RequiredHeightLockTime
 }
 
 // finalizeWitnessInput attempts to create PsbtInFinalScriptSig field and
@@ -506,6 +537,7 @@ func finalizeWitnessInput(p *Packet, inIndex int) error {
 	}
 
 	newInput.FinalScriptWitness = serializedWitness
+	keepTxFields(newInput, &pInput)
 
 	// Finally, we overwrite the entry in the input list at the correct
 	// index.
@@ -603,6 +635,7 @@ func finalizeTaprootInput(p *Packet, inIndex int) error {
 	// finalscriptwitness (08).
 	newInput := NewPsbtInput(nil, pInput.WitnessUtxo)
 	newInput.FinalScriptWitness = serializedWitness
+	keepTxFields(newInput, pInput)
 
 	// Finally, we overwrite the entry in the input list at the correct
 	// index.

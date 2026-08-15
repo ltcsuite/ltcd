@@ -172,19 +172,18 @@ const (
 	// 32-byte hash denoting the root hash of a merkle tree of scripts.
 	TaprootMerkleRootType InputType = 0x18
 
-	MwebSpentOutputIdType        InputType = 0x90
-	MwebSpentOutputCommitType    InputType = 0x91
-	MwebSpentOutputPubKeyType    InputType = 0x92
-	MwebInputPubKeyType          InputType = 0x93
-	MwebInputFeaturesType        InputType = 0x94
-	MwebInputSignatureType       InputType = 0x95
-	MwebAddressIndexType         InputType = 0x96
-	MwebInputAmountType          InputType = 0x97
-	MwebSharedSecretType         InputType = 0x98
-	MwebKeyExchangePubKeyType    InputType = 0x99
-	MwebMasterScanKeyOriginType  InputType = 0x9A
-	MwebMasterSpendKeyOriginType InputType = 0x9B
-	MwebInputExtraDataType       InputType = 0x9C
+	MwebSpentOutputIdType     InputType = 0x90
+	MwebSpentOutputCommitType InputType = 0x91
+	MwebSpentOutputPubKeyType InputType = 0x92
+	MwebInputPubKeyType       InputType = 0x93
+	MwebInputFeaturesType     InputType = 0x94
+	MwebInputSignatureType    InputType = 0x95
+	MwebAddrDescriptorType    InputType = 0x96
+	MwebInputAmountType       InputType = 0x97
+	MwebSharedSecretType      InputType = 0x98
+	MwebKeyExchangePubKeyType InputType = 0x99
+	// 0x9A and 0x9B are reserved by LIP-0007.
+	MwebInputExtraDataType InputType = 0x9C
 
 	// ProprietaryInputType is a custom type for use by devs.
 	//

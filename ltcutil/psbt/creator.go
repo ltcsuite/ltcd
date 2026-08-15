@@ -77,6 +77,12 @@ func newWithVersion(psbtVersion uint32, unsignedTx *wire.MsgTx, inputs []PInput,
 		return nil, ErrInvalidPsbtFormat
 	}
 
+	// LIP-0007 Creator role: every peg-in kernel gets a canonical output
+	// with a placeholder script, which the MWEB signer later rewrites.
+	if psbtVersion >= 2 {
+		outputs = addMissingPeginPlaceholders(outputs, kernels)
+	}
+
 	// This new Psbt is "raw" and contains no key-value fields, so sanity
 	// checking with c.Cpsbt.SanityCheck() is not required.
 	return &Packet{
@@ -89,4 +95,43 @@ func newWithVersion(psbtVersion uint32, unsignedTx *wire.MsgTx, inputs []PInput,
 		Kernels:          kernels,
 		Unknowns:         nil,
 	}, nil
+}
+
+// addMissingPeginPlaceholders inserts a placeholder output for each peg-in
+// kernel the caller did not pair, before any MWEB outputs to keep the
+// canonical-first ordering.
+func addMissingPeginPlaceholders(outputs []POutput, kernels []PKernel) []POutput {
+	have := 0
+	firstMweb := len(outputs)
+	for i := range outputs {
+		if outputs[i].isMWEB() {
+			firstMweb = i
+			break
+		} else if isPeginScript(outputs[i].PKScript) {
+			have++
+		}
+	}
+
+	var missing []POutput
+	for i := range kernels {
+		if kernels[i].PeginAmount == nil {
+			continue
+		}
+		if have > 0 {
+			have--
+			continue
+		}
+		missing = append(missing, POutput{
+			Amount:   *kernels[i].PeginAmount,
+			PKScript: PeginPlaceholderScript(),
+		})
+	}
+	if len(missing) == 0 {
+		return outputs
+	}
+
+	result := make([]POutput, 0, len(outputs)+len(missing))
+	result = append(result, outputs[:firstMweb]...)
+	result = append(result, missing...)
+	return append(result, outputs[firstMweb:]...)
 }
